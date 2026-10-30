@@ -8,6 +8,7 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Starting a phone-made hotspot: Android 13+ asks for nearby devices, older versions for location -->
     <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" android:usesPermissionFlags="neverForLocation" />
@@ -44,7 +45,28 @@
 
         <activity android:name=".LocationActivity" android:exported="false" android:parentActivityName=".MainActivity" />
 
-        <activity android:name=".SeedActivity" android:exported="false" android:parentActivityName=".MainActivity" />
+        <activity android:name=".SeedActivity" android:exported="true" android:parentActivityName=".MainActivity"
+            android:launchMode="singleTop">
+            <!-- Opening a ReadyNet pack (.rdynd) from a file manager, or receiving one through the share sheet. Android
+                 doesn't know the .rdynd type, so these are offered for any plain file; the app checks it's a pack. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-rdynd" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-rdynd" />
+            </intent-filter>
+        </activity>
 
         <activity android:name=".BatteryActivity" android:exported="false" android:parentActivityName=".MainActivity" />
 
@@ -55,6 +77,8 @@
 
         <provider android:name=".FilesProvider" android:authorities="uk.plumridge.readynode.files"
             android:exported="false" android:grantUriPermissions="true" />
+
+        <service android:name=".BusyService" android:exported="false" android:foregroundServiceType="dataSync" />
 
         <service android:name=".NodeService" android:exported="false" android:foregroundServiceType="specialUse">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"

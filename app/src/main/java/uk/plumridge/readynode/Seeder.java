@@ -202,9 +202,11 @@ public class Seeder {
         JSONArray list = pack.optJSONArray("apps");
         if (list != null) for (int i = 0; i < list.length() && !cancelled; i++) {
             JSONObject a = list.getJSONObject(i);
-            String pkg = a.getString("id"), name = a.optString("name", pkg).replace("/", "-");
+            String pkg = a.getString("id"), name = fileName(a.optString("name", pkg));
             if (!pkg.matches("[A-Za-z0-9_.]+")) continue;
             File out = new File(root, "Apps/" + name + ".apk");
+            File old = new File(root, "Apps/" + a.optString("name", pkg).replace("/", "-") + ".apk");    // 3.0 kept ":" in names
+            if (!old.equals(out) && old.isFile() && !out.exists() && !old.renameTo(out)) old.delete();
             meta.put(out.getName(), new JSONObject().put("name", a.optString("name", pkg)).put("tags", a.optJSONArray("tags") == null ? new JSONArray() : a.getJSONArray("tags")));
             try {
                 JSONObject info = new JSONObject(new String(bytes(fdroid + "/api/v1/packages/" + pkg), StandardCharsets.UTF_8));
@@ -222,7 +224,7 @@ public class Seeder {
         }
         JSONObject kw = pack.optJSONObject("kiwix");
         if (kw != null && !cancelled) {
-            String name = kw.optString("name", "Kiwix");
+            String name = fileName(kw.optString("name", "Kiwix"));
             File out = new File(root, "Apps/" + name + ".apk");
             meta.put(out.getName(), new JSONObject().put("name", name).put("tags", kw.optJSONArray("tags") == null ? new JSONArray() : kw.getJSONArray("tags")));
             try {
@@ -315,29 +317,86 @@ public class Seeder {
         try (InputStream in = c.getInputStream()) { return readAll(in); } finally { c.disconnect(); }
     }
 
-    /** Download to a hidden .part file, checking there's room, then put it in place. Returns its size. */
+    /**
+     * Download to a hidden .part file, checking there's room, then put it in place. Returns its size. A dropped or
+     * stalled connection (a slow mirror, the phone's Wi-Fi napping) carries on from where it got to, a few times over.
+     */
     private long download(String url, File dest, String label, Syncer.Progress progress) throws IOException {
-        HttpURLConnection c = connect(url);
-        long total = c.getContentLengthLong();
         dest.getParentFile().mkdirs();
-        room(total, dest);
         File part = new File(dest.getParentFile(), "." + dest.getName() + ".part");
-        long n;
-        try (InputStream in = c.getInputStream(); OutputStream out = new FileOutputStream(part)) {
-            n = copy(in, out, label, total, progress);
-        } catch (IOException e) {
-            part.delete();
-            throw e;
-        } finally {
-            c.disconnect();
+        part.delete();
+        long total = -1;
+        IOException last = null;
+        for (int attempt = 0; attempt < RETRIES && !cancelled; attempt++) {
+            if (attempt > 0) {
+                progress.update(label + ": connection dropped, carrying on (try " + (attempt + 1) + " of " + RETRIES + ")…", part.length(), total);
+                try { Thread.sleep(Math.min(30000, 3000L * attempt)); } catch (InterruptedException e) { throw new IOException("Cancelled"); }
+            }
+            long have = part.isFile() ? part.length() : 0;
+            HttpURLConnection c;
+            int code;
+            try {
+                c = opener.open(new URL(url));
+                c.setConnectTimeout(15000);
+                c.setReadTimeout(60000);
+                c.setRequestProperty("User-Agent", "ReadyNode-seed/1");
+                if (have > 0) c.setRequestProperty("Range", "bytes=" + have + "-");
+                code = c.getResponseCode();
+            } catch (IOException e) { last = e; continue; }
+            try {
+                if (code == 416 && total > 0 && have == total) break;                // it had all arrived
+                if (code == 200) have = 0;                                         // the server started again from the top
+                else if (code != 206 || have == 0) throw new Syncer.HttpError(code);
+                long len = c.getContentLengthLong();
+                if (total < 0 && len >= 0) { total = have + len; room(total, dest); }
+                try (InputStream in = c.getInputStream(); OutputStream out = new FileOutputStream(part, have > 0)) {
+                    copy(in, out, label, have, total, progress);
+                }
+                if (total > 0 && part.length() < total) { last = new IOException("the connection dropped"); continue; }   // ended early, quietly
+                last = null;
+                break;
+            } catch (Syncer.HttpError e) {
+                part.delete();
+                throw e;
+            } catch (IOException e) {
+                if (cancelled || (e.getMessage() != null && e.getMessage().startsWith("not enough room"))) { part.delete(); throw e; }
+                last = e;
+            } finally {
+                c.disconnect();
+            }
         }
+        if (last != null || cancelled) { part.delete(); throw last != null ? last : new IOException("Cancelled"); }
+        long n = part.length();
         if (total > 0 && n != total) { part.delete(); throw new IOException("incomplete download"); }
         move(part, dest);
         return n;
     }
 
+    static final int RETRIES = 6;
+
+    /** A file name that every card and stick can hold: FAT and exFAT refuse \\ / : * ? " < > | */
+    static String fileName(String s) {
+        String n = s.replace(": ", " - ").replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]", "-").trim();
+        while (n.endsWith(".")) n = n.substring(0, n.length() - 1);
+        return n.isEmpty() ? "file" : n;
+    }
+
     /** Download a zip and keep just the one file in it ending in ext, unzipping as it arrives (no copy of the zip). */
     private long unzipFrom(String url, String ext, File dest, String label, Syncer.Progress progress) throws IOException {
+        for (int attempt = 1; ; attempt++) {           // unzipped as it streams, so a dropped connection starts that map again
+            try {
+                return unzipOnce(url, ext, dest, label, progress);
+            } catch (Syncer.HttpError e) {
+                throw e;
+            } catch (IOException e) {
+                if (cancelled || attempt >= 3 || (e.getMessage() != null && (e.getMessage().startsWith("not enough room") || e.getMessage().startsWith("the download had no")))) throw e;
+                progress.update(label + ": connection dropped, starting it again (try " + (attempt + 1) + " of 3)…", 0, 0);
+                try { Thread.sleep(5000L * attempt); } catch (InterruptedException x) { throw new IOException("Cancelled"); }
+            }
+        }
+    }
+
+    private long unzipOnce(String url, String ext, File dest, String label, Syncer.Progress progress) throws IOException {
         HttpURLConnection c = connect(url);
         long total = c.getContentLengthLong();
         dest.getParentFile().mkdirs();
@@ -348,7 +407,7 @@ public class Seeder {
             ZipEntry e;
             while ((e = z.getNextEntry()) != null) {
                 if (e.isDirectory() || !e.getName().endsWith(ext)) continue;
-                try (OutputStream out = new FileOutputStream(part)) { n = copy(z, out, label, 0, progress); }
+                try (OutputStream out = new FileOutputStream(part)) { n = copy(z, out, label, 0, 0, progress); }
                 break;
             }
         } catch (IOException e) {
@@ -368,9 +427,10 @@ public class Seeder {
             throw new IOException("not enough room: needs " + NodeServer.human(need) + ", " + NodeServer.human(free) + " free");
     }
 
-    private long copy(InputStream in, OutputStream out, String label, long total, Syncer.Progress progress) throws IOException {
+    /** Copies, reporting progress from "from" bytes in (a resumed download); returns the bytes copied this time. */
+    private long copy(InputStream in, OutputStream out, String label, long from, long total, Syncer.Progress progress) throws IOException {
         byte[] buf = new byte[64 * 1024];
-        long done = 0, shown = 0;
+        long done = from, shown = from;
         int k;
         while ((k = in.read(buf)) > 0) {
             if (cancelled) throw new IOException("Cancelled");
@@ -378,7 +438,7 @@ public class Seeder {
             done += k;
             if (done - shown > (2 << 20)) { shown = done; progress.update(label + ": " + NodeServer.human(done) + (total > 0 ? " of " + NodeServer.human(total) : ""), done, total); }
         }
-        return done;
+        return done - from;
     }
 
     private static void move(File part, File dest) throws IOException {

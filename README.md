@@ -10,7 +10,7 @@ ReadyNet holds offline maps, survival and first-aid libraries, plain-English gui
 - **Share.** It turns this phone into a ReadyNet server on its hotspot or Wi-Fi. Other phones open the address it shows, or scan its QR code, to browse it in a web browser or download the ReadyNode app itself.
 - **Sync.** It copies from another ReadyNet: a phone running ReadyNode, or any server that speaks the same ReadyNet API. It checks free space first, verifies every file by checksum, and carries on where it stopped. A file is offered for removal only if the source that gave it has since dropped it, and you are always asked first.
 - **Seed.** It makes this phone a complete ReadyNet from the original sources on the internet: OsmAnd maps for the areas you pick, Kiwix libraries (newest versions only), the apps from F-Droid, and the guides built into the app. See [`pack/pack.json`](pack/pack.json) for exactly what it fetches.
-- **Packs.** For when phones can't reach each other: copy ReadyNet to an SD card, a USB-C stick or a laptop as a folder called `ReadyNet pack`, then copy it in on another phone. It's a folder of ordinary files, not one big zip, so it fits FAT32 cards and an interrupted copy just carries on.
+- **Packs.** For when phones can't reach each other: **Seed → Make a pack** puts this phone's ReadyNet into one `.rdynd` file, on an SD card, a USB-C stick or in Downloads to send on. Get it to another phone however you like, then open it, or use **Seed → Copy in a pack**. Maps are compressed (to about 56%); libraries that are already compressed are stored as they are, so a typical pack is 20–25% smaller than the files. Over 3.8 GB it splits into parts that each fit a FAT32 card, and an interrupted copy carries on where it stopped. Inside, a `.rdynd` is an ordinary zip with `readynet-pack.json` first.
 - **Where am I?** It shows your position as a Plus Code, a grid reference and latitude/longitude, from GPS only.
 - **Save battery.** It gives a short list of settings that make a phone last for days, with links straight to each one.
 - **Broadcasts (optional, off by default).** One short message per phone, passed from node to node. You can mute any sender.
@@ -25,7 +25,7 @@ It needs Android 8 or newer. It has no ads, no accounts and no tracking, and it 
 
 1. **With internet:** open **Seed**, choose your map areas, and tap **Download**. It needs a few GB, so use Wi-Fi.
 2. **From a phone that has it:** on that phone, tap **Share**. On yours, join its hotspot (or the same Wi-Fi) and tap **Sync**.
-3. **From a pack:** **Seed → Copy in a pack**, then pick the `ReadyNet pack` folder on the card or stick.
+3. **From a pack:** open the `.rdynd` file, or **Seed → Copy in a pack** and pick it (all its parts, if there are several).
 
 ## Privacy
 
@@ -40,7 +40,7 @@ echo "sdk.dir=/path/to/android-sdk" > local.properties
 gradle testReleaseUnitTest assembleRelease
 ```
 
-The website in `site/`, the guides in `guides/` and `pack/pack.json` are copied into the app at build time. Release signing reads a `keystore.properties` file from outside the repo (path in `READYNODE_SIGNING`); without it, the release build is unsigned. To publish, put the signed APK at `ReadyNode.apk` in the repo root and run `tools/release.sh v3.0`.
+The website in `site/`, the guides in `guides/` and `pack/pack.json` are copied into the app at build time. Release signing reads a `keystore.properties` file from outside the repo (path in `READYNODE_SIGNING`); without it, the release build is unsigned. To publish, put the signed APK at `ReadyNode.apk` in the repo root and run `tools/release.sh v3.1`.
 
 ## The ReadyNet API
 
