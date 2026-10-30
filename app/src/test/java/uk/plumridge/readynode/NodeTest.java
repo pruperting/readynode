@@ -187,9 +187,18 @@ public class NodeTest {
             assertEquals("Phone A", offer.name);
             assertEquals("node", offer.kind);
             assertEquals(2, offer.sections.get("Apps")[0]);
+            assertEquals("an empty phone has none of it", 0, s.coverage(offer).get("Maps")[1]);
 
             Syncer.Result r = s.run("127.0.0.1:18082", ALL_BUT_FILES, Syncer.ALWAYS, (m, d, t) -> {});
             assertEquals(5, r.downloaded);
+            java.util.Map<String, long[]> cov = s.coverage(offer);
+            assertArrayEquals("all their maps, now", new long[]{1, 1, cov.get("Maps")[2], cov.get("Maps")[2]}, cov.get("Maps"));
+            assertEquals("their files weren't ticked: 1 there, none here", 0, cov.get("Files")[1]);
+            assertEquals(1, cov.get("Files")[0]);
+            Files.write(new File(b, "Maps/Wales.obf").toPath(), "cut".getBytes());
+            assertEquals("a file of the wrong size doesn't count", 0, s.coverage(offer).get("Maps")[1]);
+            Files.write(new File(b, "Maps/Wales.obf").toPath(), "wales map".getBytes());
+            new File(b, "Maps/Wales.obf").setLastModified(new File(a, "Maps/Wales.obf").lastModified());
             assertEquals("wales map", read(new File(b, "Maps/Wales.obf")));
             assertFalse("their shared files not copied unless ticked", new File(b, "Files/Books/their-plan.pdf").exists());
             assertEquals("same date as on phone A", new File(a, "Maps/Wales.obf").lastModified() / 1000, new File(b, "Maps/Wales.obf").lastModified() / 1000);

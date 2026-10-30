@@ -44,7 +44,7 @@ public class SeedActivity extends Screen {
     private final List<Seeder.Region> regions = new ArrayList<>();
     private CheckBox libs, apps;
     private LinearLayout regionList;
-    private TextView status, estimate;
+    private TextView status, estimate, haveText;
     private ProgressBar bar;
     private Button go;
     private volatile Seeder running;
@@ -69,6 +69,10 @@ public class SeedActivity extends Screen {
         col.addView(small("A seed has everything: maps, survival and knowledge libraries, apps and guides. Others join its hotspot "
                 + "(Share), install ReadyNode from it and Sync, and become complete ReadyNets themselves, with no internet anywhere. "
                 + "Only the first phone in a chain needs the internet, or a pack."));
+
+        col.addView(text("What this phone has", 17, true));
+        haveText = text("", 15, false);
+        col.addView(haveText);
 
         col.addView(text("From the internet", 17, true));
         col.addView(small("Downloads from the original sources: maps from OsmAnd, libraries from Kiwix, open-source apps from F-Droid. "
@@ -122,7 +126,46 @@ public class SeedActivity extends Screen {
         return out;
     }
 
+    /** Checks this phone against a complete seed (the ticked map areas, libraries and apps, and the guides), offline. */
+    private void showHave() {
+        if (haveText == null) return;
+        Set<String> maps = chosenRegions();
+        boolean l = libs.isChecked(), a = apps.isChecked();
+        new Thread(() -> {
+            List<String> guides = new ArrayList<>();
+            try { String[] g = getAssets().list("guides"); if (g != null) guides.addAll(Arrays.asList(g)); } catch (Exception ignored) { }
+            List<Seeder.Check> all = seeder().checklist(maps, l, a, guides);
+            Map<String, int[]> groups = new LinkedHashMap<>();
+            Map<String, List<String>> missing = new LinkedHashMap<>();
+            int have = 0;
+            for (Seeder.Check c : all) {
+                int[] t = groups.computeIfAbsent(c.group, k -> new int[2]);
+                t[0]++;
+                if (c.have) { t[1]++; have++; }
+                else missing.computeIfAbsent(c.group, k -> new ArrayList<>()).add(c.label);
+            }
+            StringBuilder b = new StringBuilder();
+            if (all.isEmpty()) b.append("Nothing ticked to check.");
+            else if (have == all.size()) b.append("✓ Complete: all ").append(all.size()).append(" things a seed should have are here.");
+            else b.append(have).append(" of ").append(all.size()).append(" things a seed should have are here (").append(SettingsActivity.pct(have, all.size())).append(").");
+            for (Map.Entry<String, int[]> g : groups.entrySet()) {
+                int[] t = g.getValue();
+                b.append("\n").append(t[1] == t[0] ? "✓ " : "• ").append(g.getKey()).append(": ").append(t[1]).append(" of ").append(t[0]);
+                List<String> m = missing.get(g.getKey());
+                if (m != null) {
+                    b.append(". Missing: ");
+                    for (int i = 0; i < Math.min(4, m.size()); i++) b.append(i == 0 ? "" : "; ").append(m.get(i).replaceAll("\\s*\\(.*$", "").replaceAll(":.*$", ""));
+                    if (m.size() > 4) b.append("; and ").append(m.size() - 4).append(" more");
+                }
+            }
+            if (maps.isEmpty()) b.append("\n(No map areas chosen yet, so maps aren't checked: tap Show the map areas.)");
+            String text = b.toString();
+            ui.post(() -> haveText.setText(text));
+        }).start();
+    }
+
     private void updateEstimate() {
+        showHave();
         List<Seeder.Region> chosen = new ArrayList<>();
         Set<String> want = chosenRegions();
         for (Seeder.Region r : regions) if (want.contains(r.file)) chosen.add(r);
@@ -312,6 +355,7 @@ public class SeedActivity extends Screen {
     @Override
     protected void onResume() {
         super.onResume();
+        if (built && libs != null) showHave();                // things may have arrived by sync meanwhile
         if (!handled) { handled = true; incoming(getIntent()); }
     }
 
@@ -338,6 +382,7 @@ public class SeedActivity extends Screen {
         if (busy) { toast("Wait for the current job to finish."); return; }
         new Thread(() -> {
             StringBuilder about = new StringBuilder();
+            List<JSONObject> abouts = new ArrayList<>();
             long size = 0;
             String err = null;
             for (Uri u : uris) {
@@ -345,6 +390,7 @@ public class SeedActivity extends Screen {
                     if (in == null) throw new java.io.IOException("couldn't open it");
                     JSONObject a = Packs.about(in);
                     JSONArray f = a.getJSONArray("files");
+                    abouts.add(a);
                     for (int k = 0; k < f.length(); k++) size += f.getJSONObject(k).optLong("size");
                     about.append("• From ").append(a.optString("by", "someone")).append(", made ").append(a.optString("made", "?").replace("T", " "))
                             .append(a.optInt("parts", 1) > 1 ? ", part " + a.optInt("part") + " of " + a.optInt("parts") : "")
@@ -354,12 +400,25 @@ public class SeedActivity extends Screen {
                     break;
                 }
             }
+            // a set in parts: which parts would still be missing after copying in the ones picked
+            String partsNote = "";
+            if (err == null && !abouts.isEmpty() && abouts.get(0).optInt("parts", 1) > 1) {
+                java.util.TreeSet<Integer> picked = new java.util.TreeSet<>(), stillNeed = new java.util.TreeSet<>();
+                for (JSONObject a : abouts) picked.add(a.optInt("part"));
+                for (JSONObject a : abouts) stillNeed.addAll(Packs.setStatus(a, Node.root(this)).partsNeeded);
+                stillNeed.removeAll(picked);
+                int parts = abouts.get(0).optInt("parts");
+                partsNote = stillNeed.isEmpty() ? "\nWith these, this phone will have the whole pack (all " + parts + " parts)."
+                        : "\nThis pack comes in " + parts + " parts, each with different files. You'll still need part" + (stillNeed.size() > 1 ? "s " : " ")
+                        + stillNeed.toString().replaceAll("[\\[\\]]", "") + " for the whole pack: copy " + (stillNeed.size() > 1 ? "them" : "it") + " in too.";
+            }
+            String fpartsNote = partsNote;
             String ferr = err;
             long fsize = size;
             ui.post(() -> {
                 if (ferr != null) { new AlertDialog.Builder(this).setTitle("Can't copy that in").setMessage("Sorry: " + ferr + ".").setPositiveButton("OK", null).show(); return; }
                 new AlertDialog.Builder(this).setTitle("Copy in this ReadyNet pack?")
-                        .setMessage(about + "\n" + NodeServer.human(fsize) + " in all; files already on this phone are skipped. The screen can go off.")
+                        .setMessage(about + "\n" + NodeServer.human(fsize) + " in all; files already on this phone are skipped. The screen can go off." + fpartsNote)
                         .setPositiveButton("Copy in", (d, w) -> importJob(uris)).setNegativeButton("Cancel", null).show();
             });
         }).start();
@@ -394,7 +453,8 @@ public class SeedActivity extends Screen {
     private void importJob(List<Uri> uris) {
         startJob("Copying in a ReadyNet pack");
         new Thread(() -> {
-            int copied = 0, skipped = 0, failed = 0;
+            int copied = 0, skipped = 0, failed = 0, setFiles = -1, setHave = 0;
+            java.util.TreeSet<Integer> need = null;
             long bytes = 0;
             String last = "", stop = null;
             for (Uri u : uris) {
@@ -406,6 +466,11 @@ public class SeedActivity extends Screen {
                     failed += r.failed;
                     bytes += r.bytes;
                     if (!r.lastError.isEmpty()) last = r.lastError;
+                    if (r.setFiles >= 0) {                     // the latest word on the whole set (each part knows it)
+                        setFiles = r.setFiles;
+                        setHave = r.setHave;
+                        need = new java.util.TreeSet<>(r.partsNeeded);
+                    }
                 } catch (Exception e) {
                     stop = e.getMessage();
                     break;
@@ -414,6 +479,10 @@ public class SeedActivity extends Screen {
             String msg = (stop != null ? "Stopped: " + stop + ". " : "Pack copied in: ") + copied + " files copied (" + NodeServer.human(bytes) + "), "
                     + skipped + " already here" + (failed > 0 ? ", " + failed + " failed (last problem: " + last + ")" : "") + "."
                     + (stop != null ? " Copy it in again to carry on: what's done is kept." : "");
+            if (setFiles > 0) msg += need == null || need.isEmpty()
+                    ? "\n\n✓ This phone now has the whole pack: all " + setFiles + " files."
+                    : "\n\nThis phone has " + setHave + " of the pack's " + setFiles + " files (" + SettingsActivity.pct(setHave, setFiles) + "). Still to copy in: part"
+                    + (need.size() > 1 ? "s " : " ") + need.toString().replaceAll("[\\[\\]]", "") + ".";
             endJob(msg);
         }).start();
     }

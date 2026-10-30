@@ -61,6 +61,8 @@ public class SettingsActivity extends Activity {
             {"Apps", "Android apps"}, {"Files", "Their shared files"}};
     private final Handler ui = new Handler(Looper.getMainLooper());
 
+    private TextView haveText;
+    private volatile Syncer.Offer lastOffer;
     private TextView connText, syncStatus, shareStatus, hotspotText, urlText, filesHint, versionText;
     private EditText hostField, nameField, newsText, castText;
     private final Map<String, CheckBox> ticks = new LinkedHashMap<>();
@@ -111,12 +113,16 @@ public class SettingsActivity extends Activity {
         col.addView(title("Sync"));
         connText = body("Looking for a ReadyNet on your Wi-Fi…");
         col.addView(connText);
+        haveText = body("");
+        haveText.setVisibility(View.GONE);
+        col.addView(haveText);
         col.addView(small("Choose what to copy onto this phone. Unticked sections are removed from this phone to save space "
                 + "(it asks first). Otherwise syncing only adds and updates."));
         for (String[] s : SYNC) {
             CheckBox c = new CheckBox(this);
             c.setText(s[1]);
             c.setChecked(p.getBoolean("sync_" + s[0], !s[0].equals("Files")));
+            c.setOnClickListener(v -> showCoverage());
             ticks.put(s[0], c);
             col.addView(c);
         }
@@ -268,12 +274,49 @@ public class SettingsActivity extends Activity {
                 }
                 connText.setText("Connected to " + f.name + " at " + f.base.replace("http://", "") + ".");
                 syncBtn.setEnabled(syncer == null);
-                if (offer != null) for (String[] s : SYNC) {
-                    long[] t = offer.sections.get(s[0]);
-                    ticks.get(s[0]).setText(s[1] + (t == null || t[0] == 0 ? " (they have none)" : " (" + t[0] + " files, " + NodeServer.human(t[1]) + ")"));
-                }
+                lastOffer = offer;
+                showCoverage();
             });
         }).start();
+    }
+
+    /**
+     * How complete this phone's copy is, against the ReadyNet it's connected to: per section on the ticks, and in all
+     * for the ticked sections. Counts files here at the same path and size, however they arrived.
+     */
+    private void showCoverage() {
+        Syncer.Offer offer = lastOffer;
+        if (offer == null || haveText == null) return;
+        new Thread(() -> {
+            Map<String, long[]> cov;
+            try { cov = syncerFor().coverage(offer); } catch (Exception e) { return; }
+            ui.post(() -> {
+                long files = 0, have = 0, bytes = 0, haveBytes = 0;
+                StringBuilder missing = new StringBuilder();
+                for (String[] s : SYNC) {
+                    long[] t = cov.get(s[0]);
+                    CheckBox c = ticks.get(s[0]);
+                    if (t == null || c == null) continue;
+                    c.setText(s[1] + (t[0] == 0 ? " (they have none)" : " (" + t[0] + " files, " + NodeServer.human(t[2]) + "; you have "
+                            + (t[1] == t[0] ? "all" : t[1] + ", " + pct(t[1], t[0])) + ")"));
+                    if (!c.isChecked() || t[0] == 0) continue;
+                    files += t[0]; have += t[1]; bytes += t[2]; haveBytes += t[3];
+                    if (t[1] < t[0]) missing.append(missing.length() == 0 ? "" : ", ").append(t[0] - t[1]).append(" in ").append(s[1]);
+                }
+                haveText.setVisibility(View.VISIBLE);
+                if (files == 0) haveText.setText("Nothing to compare: tick a section they have.");
+                else if (have == files) haveText.setText("✓ This phone has everything " + offer.name + " has in the ticked sections: " + files + " files, " + NodeServer.human(bytes) + ".");
+                else haveText.setText("This phone has " + have + " of the " + files + " files " + offer.name + " has in the ticked sections ("
+                        + pct(have, files) + "; " + NodeServer.human(haveBytes) + " of " + NodeServer.human(bytes) + "). Missing: " + missing + ". Sync to get them.");
+            });
+        }).start();
+    }
+
+    static String pct(long a, long b) {
+        if (b <= 0) return "0%";
+        long p = a * 100 / b;
+        if (p == 100 && a < b) p = 99;                         // never say 100% while something's missing
+        return p + "%";
     }
 
     /** Asks on screen, from the sync thread, before anything is removed. */
@@ -345,7 +388,8 @@ public class SettingsActivity extends Activity {
                 syncBtn.setText("Sync now");
                 syncBar.setVisibility(View.GONE);
                 syncStatus.setText(fin);
-                showFiles();
+                if (filesList != null) showFiles();         // the files list is on the Share screen, not this one
+                showCoverage();
             });
         }).start();
     }
@@ -420,6 +464,7 @@ public class SettingsActivity extends Activity {
 
     // ------------------------------------------------------------------ own files
     private void showFiles() {
+        if (filesList == null) return;                     // only the Share screen has it
         filesList.removeAllViews();
         File files = new File(Node.root(this), "Files");
         int n = 0;

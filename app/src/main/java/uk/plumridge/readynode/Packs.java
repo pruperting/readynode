@@ -66,6 +66,10 @@ public final class Packs {
         public long bytes, packed;
         public final List<String> names = new ArrayList<>();
         public String lastError = "";
+        /** Copying in: of all the files in this pack's whole set (every part), how many this phone now has, and the
+         *  parts that still have files missing (empty when the set is complete). Older packs don't say: setFiles = -1. */
+        public int setFiles = -1, setHave;
+        public final List<Integer> partsNeeded = new ArrayList<>();
     }
 
     // ------------------------------------------------------------------ make: phone → .rdynd file(s)
@@ -90,6 +94,9 @@ public final class Packs {
         String base = "ReadyNet " + Seeder.fileName(madeBy) + " " + new SimpleDateFormat("yyyy-MM-dd", Locale.UK).format(new Date());
         Result r = new Result();
         r.parts = parts.size();
+        JSONArray set = new JSONArray();                                  // every part lists the whole set, and which part has what
+        for (int p = 0; p < parts.size(); p++)
+            for (String[] f : parts.get(p)) set.put(new JSONArray().put(f[0]).put(Long.parseLong(f[1])).put(p + 1));
         long done = 0;
         byte[] buf = new byte[256 * 1024];
         for (int p = 0; p < parts.size(); p++) {
@@ -97,7 +104,7 @@ public final class Packs {
             JSONArray list = new JSONArray();
             for (String[] f : parts.get(p)) list.put(new JSONObject().put("path", f[0]).put("size", Long.parseLong(f[1])));
             JSONObject about = new JSONObject().put("readynet", 1).put("made", NewsStore.now()).put("by", madeBy)
-                    .put("part", p + 1).put("parts", parts.size()).put("files", list);
+                    .put("part", p + 1).put("parts", parts.size()).put("files", list).put("set", set);
             into.delete(name);
             Counting count = new Counting(into.write(name));
             boolean ok = false;
@@ -256,7 +263,33 @@ public final class Packs {
             r.failed += listed.size();
             r.lastError = "the pack is missing " + listed.size() + " file(s) it lists: it may have been cut short";
         }
+        checkSet(about, root, r);
         progress.update("Done", total, total);
+        return r;
+    }
+
+    /** After copying a part in: how much of the whole set is here now, and which parts are still needed. */
+    static void checkSet(JSONObject about, File root, Result r) {
+        JSONArray set = about.optJSONArray("set");
+        if (set == null) return;
+        java.util.TreeSet<Integer> need = new java.util.TreeSet<>();
+        r.setFiles = 0;
+        for (int i = 0; i < set.length(); i++) {
+            JSONArray e = set.optJSONArray(i);
+            if (e == null || !safe(e.optString(0))) continue;
+            r.setFiles++;
+            File f = new File(root, e.optString(0));
+            if (f.isFile() && f.length() == e.optLong(1)) r.setHave++;
+            else need.add(e.optInt(2));
+        }
+        r.partsNeeded.addAll(need);
+    }
+
+    /** What's left to copy in for a pack's set, from its readynet-pack.json alone (for the question before copying). */
+    public static Result setStatus(JSONObject about, File root) {
+        Result r = new Result();
+        r.parts = about.optInt("parts", 1);
+        checkSet(about, root, r);
         return r;
     }
 

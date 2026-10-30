@@ -125,6 +125,28 @@ public class Syncer {
         return out;
     }
 
+    /**
+     * How much of a ReadyNet this phone already has, section by section: {files they have, of those here,
+     * bytes they have, of those here}. A file counts as here if this phone has it at the same path and size, however
+     * it got here (a sync, a seed or a pack).
+     */
+    public Map<String, long[]> coverage(Offer offer) throws Exception {
+        Map<String, long[]> out = new LinkedHashMap<>();
+        for (String s : NodeServer.SECTIONS) out.put(s, new long[4]);
+        for (int i = 0; i < offer.files.length(); i++) {
+            JSONObject f = offer.files.getJSONObject(i);
+            String path = clean(f.optString("path")), sec = f.optString("section");
+            long[] t = out.get(sec);
+            if (path == null || t == null || !path.startsWith(sec + "/")) continue;
+            long size = f.optLong("size");
+            File dest = new File(root, path);
+            t[0]++;
+            t[2] += size;
+            if (dest.isFile() && dest.length() == size) { t[1]++; t[3] += size; }
+        }
+        return out;
+    }
+
     public Result run(String host, Set<String> sections, Removals removals, Progress progress) throws Exception {
         String base = base(host);
         progress.update("Asking what there is to copy…", 0, 0);

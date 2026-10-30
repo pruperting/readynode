@@ -240,8 +240,20 @@ public class SeedTest {
         java.util.Collections.sort(names);
         assertTrue(names.toString(), names.get(0).endsWith(" part 1 of 2.rdynd") && names.get(1).endsWith(" part 2 of 2.rdynd"));
         File fresh = NodeTest.phone();
-        for (int i = names.size() - 1; i >= 0; i--)                                           // any order
-            try (java.io.InputStream s = new java.io.FileInputStream(new File(card, names.get(i)))) { assertEquals(2, Packs.importFrom(s, fresh, (m, d, t) -> {}).copied); }
+        Packs.Result second;
+        try (java.io.InputStream s = new java.io.FileInputStream(new File(card, names.get(1)))) { second = Packs.importFrom(s, fresh, (m, d, t) -> {}); }
+        assertEquals(2, second.copied);
+        assertEquals("each part knows the whole set", 4, second.setFiles);
+        assertEquals(2, second.setHave);
+        assertEquals("and that part 1 is still needed", java.util.Collections.singletonList(1), second.partsNeeded);
+        try (java.io.InputStream s = new java.io.FileInputStream(new File(card, names.get(0)))) {
+            assertEquals("asked before copying: part 1 is what's left", java.util.Collections.singletonList(1), Packs.setStatus(Packs.about(s), fresh).partsNeeded);
+        }
+        Packs.Result first;
+        try (java.io.InputStream s = new java.io.FileInputStream(new File(card, names.get(0)))) { first = Packs.importFrom(s, fresh, (m, d, t) -> {}); }
+        assertEquals(2, first.copied);
+        assertEquals(4, first.setHave);
+        assertTrue("now complete", first.partsNeeded.isEmpty());
         for (String f : new String[]{"Maps/A.obf", "Maps/B.obf", "Knowledge/C.zim", "Apps/D.apk"}) assertTrue(f, new File(fresh, f).isFile());
     }
 
@@ -266,6 +278,33 @@ public class SeedTest {
         assertFalse(new File(phone.getParentFile(), "escape.txt").exists());
         assertFalse(new File(phone, "Files/Media/x.jpg").exists());
         assertFalse(new File(phone, "Apps/unlisted.apk").exists());
+    }
+
+    @Test
+    public void theSeedChecklistSaysWhatsMissing() throws Exception {
+        JSONObject pack = new JSONObject()
+                .put("libraries", new JSONArray().put(new JSONObject().put("path", "other/zimgit-water_en").put("name", "Water"))
+                        .put(new JSONObject().put("path", "wikipedia/wikipedia_en_medicine_mini").put("name", "WikiMed")))
+                .put("apps", new JSONArray().put(new JSONObject().put("id", "net.osmand.plus").put("name", "OsmAnd (offline maps)"))
+                        .put(new JSONObject().put("id", "net.gsantner.markor").put("name", "Markor (notes: write and keep longer notes)")))
+                .put("kiwix", new JSONObject().put("name", "Kiwix (offline library reader)"));
+        File root = NodeTest.phone("Maps/Gb_wales_europe_2.obf", "map", "Survival library/zimgit-water_en_2024-08.zim", "w",
+                "Apps/OsmAnd (offline maps).apk", "a", "Apps/Kiwix.apk", "k", "Survival library/Guides/WATER.md", "g");
+        Seeder s = new Seeder(root, new File(root.getParentFile(), "state.json"), pack, u -> (HttpURLConnection) u.openConnection());
+        List<Seeder.Check> c = s.checklist(new HashSet<>(Arrays.asList("Gb_wales_europe_2", "Ireland_europe_2")), true, true, Arrays.asList("WATER.md", "PLUS CODES.md"));
+        Map<String, Boolean> got = new HashMap<>();
+        for (Seeder.Check x : c) got.put(x.group + ":" + x.label, x.have);
+        assertEquals(Boolean.TRUE, got.get("Libraries:Water"));
+        assertEquals(Boolean.FALSE, got.get("Libraries:WikiMed"));
+        assertEquals(Boolean.TRUE, got.get("Apps:OsmAnd (offline maps)"));
+        assertEquals("matched by name, whatever the file's called", Boolean.TRUE, got.get("Apps:Kiwix (offline library reader)"));
+        assertEquals(Boolean.FALSE, got.get("Apps:Markor (notes: write and keep longer notes)"));
+        assertEquals(Boolean.TRUE, got.get("Guides:WATER"));
+        assertEquals(Boolean.FALSE, got.get("Guides:PLUS CODES"));
+        long maps = c.stream().filter(x -> x.group.equals("Maps")).count(), mapsHere = c.stream().filter(x -> x.group.equals("Maps") && x.have).count();
+        assertEquals(2, maps);
+        assertEquals(1, mapsHere);
+        assertEquals("unticked groups aren't checked", 0, s.checklist(new HashSet<>(), false, false, new java.util.ArrayList<>()).size());
     }
 
     @Test

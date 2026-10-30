@@ -18,6 +18,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
@@ -124,6 +125,57 @@ public class Seeder {
             b.append(w.equals("of") || w.equals("and") || w.equals("the") ? w : Character.toUpperCase(w.charAt(0)) + w.substring(1));
         }
         return b.toString();
+    }
+
+    // ------------------------------------------------------------------ what a complete seed has
+    public static class Check {
+        public final String group, label;
+        public final boolean have;
+        Check(String group, String label, boolean have) { this.group = group; this.label = label; this.have = have; }
+    }
+
+    /**
+     * Everything a complete seed should have, and whether this phone has each, with no internet needed: the chosen map
+     * areas, each library in pack.json (any edition), each app, and the guides built into the app. However things got
+     * here (seed, sync or pack) they count. Apps are matched by name, so the HomeBox's copies count too.
+     */
+    public List<Check> checklist(Set<String> regions, boolean libraries, boolean apps, List<String> guides) {
+        List<Check> out = new ArrayList<>();
+        for (String f : new TreeSet<>(regions)) out.add(new Check("Maps", regionName(f), new File(root, "Maps/" + f + ".obf").isFile()));
+        JSONArray libs = pack.optJSONArray("libraries");
+        if (libraries && libs != null) for (int i = 0; i < libs.length(); i++) {
+            JSONObject l = libs.optJSONObject(i);
+            if (l == null) continue;
+            String path = l.optString("path"), prefix = path.substring(path.indexOf('/') + 1);
+            boolean have = false;
+            for (String sec : new String[]{"Survival library", "Knowledge"}) have |= hasFile(new File(root, sec), Pattern.quote(prefix) + "_\\d{4}-\\d{2}\\.zim", 2);
+            out.add(new Check("Libraries", l.optString("name", prefix), have));
+        }
+        if (apps) {
+            List<String> names = new ArrayList<>();
+            JSONArray list = pack.optJSONArray("apps");
+            if (list != null) for (int i = 0; i < list.length(); i++) if (list.optJSONObject(i) != null) names.add(list.optJSONObject(i).optString("name"));
+            if (pack.optJSONObject("kiwix") != null) names.add(pack.optJSONObject("kiwix").optString("name", "Kiwix"));
+            String[] here = new File(root, "Apps").list();
+            for (String n : names) {
+                String stem = n.replaceAll("\\s*\\(.*$", "").trim().toLowerCase(Locale.ROOT);      // "OsmAnd (offline maps)" → "osmand"
+                boolean have = false;
+                if (here != null) for (String h : here) have |= h.toLowerCase(Locale.ROOT).endsWith(".apk") && h.toLowerCase(Locale.ROOT).startsWith(stem);
+                out.add(new Check("Apps", n, have));
+            }
+        }
+        for (String g : guides) out.add(new Check("Guides", g.replaceAll("\\.(md|pdf|txt)$", ""), new File(root, "Survival library/Guides/" + g).isFile()));
+        return out;
+    }
+
+    private static boolean hasFile(File dir, String regex, int depth) {
+        File[] all = dir.listFiles();
+        if (all == null) return false;
+        for (File f : all) {
+            if (f.isFile() && f.getName().matches(regex)) return true;
+            if (f.isDirectory() && depth > 1 && !f.getName().startsWith(".") && hasFile(f, regex, depth - 1)) return true;
+        }
+        return false;
     }
 
     // ------------------------------------------------------------------ the whole run
