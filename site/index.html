@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ReadyNet</title>
+<link rel="stylesheet" href="/readynet/readynet.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="#/" id="brand"><span>Ready</span>Net</a>
+    <nav class="main" id="nav">
+      <a href="#/" data-nav="">Home</a>
+      <a href="#/news" data-nav="news">News</a>
+      <a href="#/search" data-nav="search">Search</a>
+    </nav>
+  </header>
+  <main id="view"><p class="meta">Loading…</p>
+    <noscript><p><a href="/readynet/simple/">Open the simple view</a> (this browser has scripts switched off).</p></noscript></main>
+  <footer id="foot">Emergency information, shared with no internet. Call 999 if someone is in immediate danger.</footer>
+</div>
+<script>
+  /* Old browsers (Android 6 and the like) can't run the full site: offer the simple view instead of "Loading…" for ever.
+     Deliberately old-fashioned JavaScript, so even they can run this bit. */
+  setTimeout(function () {
+    if (window.readynetStarted) return;
+    var v = document.getElementById("view");
+    if (v) v.innerHTML = '<div class="flash">This phone\'s browser is too old for the full ReadyNet.</div>' +
+      '<p><a class="btnlink" href="/readynet/simple/">Open the simple view</a></p>' +
+      '<p class="meta">Same news, maps, books and apps, in plain pages.</p>';
+  }, 5000);
+</script>
+<script src="/readynet/readynet.js"></script>
+</body>
+</html>

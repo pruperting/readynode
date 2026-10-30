@@ -1,0 +1,60 @@
+plugins { id "com.android.application" }
+
+android {
+    namespace "uk.plumridge.readynode"
+    compileSdk 34
+    defaultConfig {
+        applicationId "uk.plumridge.readynode"
+        minSdk 26
+        targetSdk 34
+        versionCode 10
+        versionName "3.0"
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    // Release signing comes from outside the source tree, so the key never travels in zips or the repo:
+    // a keystore.properties file (path in READYNODE_SIGNING, default: a readynode-signing folder next to this repo's folder)
+    // with storeFile, storePassword, keyAlias, keyPassword. Without it, release builds are left unsigned.
+    signingConfigs {
+        release {
+            def f = file(System.getenv("READYNODE_SIGNING") ?: "${rootDir}/../readynode-signing/keystore.properties")
+            if (f.exists()) {
+                def p = new Properties()
+                f.withInputStream { p.load(it) }
+                def sf = new File(p.storeFile)
+                storeFile sf.isAbsolute() ? sf : new File(f.parentFile, p.storeFile)   // relative to the properties file
+                storePassword p.storePassword
+                keyAlias p.keyAlias
+                keyPassword p.keyPassword
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (signingConfigs.release.storeFile != null) signingConfig signingConfigs.release
+        }
+    }
+    // ReadyNet's website and guides go into the app from this repo's site/ and guides/
+    sourceSets { main { assets.srcDirs += "$buildDir/generated/readynet-assets" } }
+    testOptions { unitTests.returnDefaultValues = true }
+    lint { checkReleaseBuilds false; abortOnError false }
+}
+
+dependencies {
+    implementation "org.nanohttpd:nanohttpd:2.3.1"
+    implementation "com.google.zxing:core:3.5.3"
+    testImplementation "junit:junit:4.13.2"
+    testImplementation "org.json:json:20240303"
+}
+
+// Copy ReadyNet's website, and the built-in guides, into the app. Every ReadyNet server shows the same site.
+tasks.register("copyReadyNet", Copy) {
+    from(rootProject.file("site")) { into "readynet" }
+    from(rootProject.file("guides")) { into "guides" }
+    from(rootProject.file("pack")) { include "pack.json" }
+    into "$buildDir/generated/readynet-assets"
+}
+preBuild.dependsOn "copyReadyNet"

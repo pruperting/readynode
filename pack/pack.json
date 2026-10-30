@@ -1,0 +1,33 @@
+{
+ "about": "What seed mode downloads to make a complete ReadyNet: free and openly licensed content only, from the original sources. Built into the ReadyNode app; edit here and rebuild to change it.",
+ "maps": {
+  "about": "OsmAnd map files (download.osmand.net). The app lists every region whose file name starts with one of these, from OsmAnd's own list.",
+  "prefixes": ["Gb_", "Ireland_", "World_basemap_mini"],
+  "always": ["World_basemap_mini_2"]
+ },
+ "libraries": [
+  {"path": "other/zimgit-post-disaster_en", "section": "Survival library", "name": "Post Disaster Resource Library: survival, shelter, sanitation, repair", "mb": 615},
+  {"path": "other/zimgit-medicine_en", "section": "Survival library", "name": "Medical Library: field and emergency medicine books", "mb": 67},
+  {"path": "other/zimgit-water_en", "section": "Survival library", "name": "Water Treatment Library: collecting and purifying water", "mb": 20},
+  {"path": "other/zimgit-food-preparation_en", "section": "Survival library", "name": "Food for Preppers: preparing and preserving food", "mb": 93},
+  {"path": "other/zimgit-knots_en", "section": "Survival library", "name": "Knots", "mb": 27},
+  {"path": "wikipedia/wikipedia_en_medicine_mini", "section": "Knowledge", "name": "WikiMed pocket edition: the medical encyclopedia, short", "mb": 166},
+  {"path": "wikivoyage/wikivoyage_en_all_nopic", "section": "Knowledge", "name": "Wikivoyage travel guide, no pictures", "mb": 260},
+  {"path": "wikipedia/wikipedia_en_top_mini", "section": "Knowledge", "name": "Wikipedia, the 50,000 most-read articles, short", "mb": 283}
+ ],
+ "apps": [
+  {"id": "net.osmand.plus", "name": "OsmAnd (offline maps)", "tags": ["maps"]},
+  {"id": "app.organicmaps", "name": "Organic Maps", "tags": ["maps"]},
+  {"id": "com.bobek.compass", "name": "Compass", "tags": ["maps"]},
+  {"id": "com.vonglasow.michael.satstat", "name": "SatStat (GPS position and grid reference, no signal needed)", "tags": ["maps"]},
+  {"id": "org.ligi.survivalmanual", "name": "Survival Manual (offline survival guide)", "tags": ["survival"]},
+  {"id": "com.foobnix.pro.pdf.reader", "name": "Librera (ebook and PDF reader)", "tags": ["survival", "knowledge"]},
+  {"id": "net.gsantner.markor", "name": "Markor (notes: write and keep longer notes)", "tags": []},
+  {"id": "com.geeksville.mesh", "name": "Meshtastic (LoRa messages)", "tags": []},
+  {"id": "org.briarproject.briar.android", "name": "Briar (messages over Wi-Fi or Bluetooth, no network needed)", "tags": []},
+  {"id": "org.videolan.vlc", "name": "VLC (films and music)", "tags": []},
+  {"id": "org.fossify.filemanager", "name": "File Manager (find downloads, open and share files)", "tags": []},
+  {"id": "de.markusfisch.android.binaryeye", "name": "Binary Eye (QR code scanner)", "tags": []}
+ ],
+ "kiwix": {"name": "Kiwix (offline library reader)", "tags": ["knowledge", "survival"]}
+}

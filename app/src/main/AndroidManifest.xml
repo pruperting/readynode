@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Starting a phone-made hotspot: Android 13+ asks for nearby devices, older versions for location -->
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" android:usesPermissionFlags="neverForLocation" />
+    <!-- Location: older Android needs it to start a hotspot; "Where am I?" asks for it only when opened -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Installing the apps downloaded from a ReadyNet -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Save battery: dim the screen and shorten the screen timeout, only once you allow it in Android's settings -->
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+
+
+    <application
+        android:label="ReadyNode"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:theme="@android:style/Theme.Material.Light.DarkActionBar"
+        android:usesCleartextTraffic="true"
+        android:allowBackup="false">
+
+        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- "Open this ReadyNet in the app" links on ReadyNet pages: readynet://<address>/readynet/ -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="readynet" />
+            </intent-filter>
+        </activity>
+
+        <activity android:name=".LocationActivity" android:exported="false" android:parentActivityName=".MainActivity" />
+
+        <activity android:name=".SeedActivity" android:exported="false" android:parentActivityName=".MainActivity" />
+
+        <activity android:name=".BatteryActivity" android:exported="false" android:parentActivityName=".MainActivity" />
+
+        <activity android:name=".SettingsActivity" android:exported="false" android:parentActivityName=".MainActivity" />
+
+        <activity android:name=".BrowseActivity" android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
+
+        <provider android:name=".FilesProvider" android:authorities="uk.plumridge.readynode.files"
+            android:exported="false" android:grantUriPermissions="true" />
+
+        <service android:name=".NodeService" android:exported="false" android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Shares offline emergency information with nearby phones over Wi-Fi" />
+        </service>
+    </application>
+</manifest>
