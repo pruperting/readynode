@@ -361,9 +361,10 @@ public class Syncer {
     }
 
     static String duration(long s) {
-        if (s < 90) return "a minute";
-        if (s < 3600) return (s + 30) / 60 + " min";
-        return s / 3600 + " h " + (s % 3600 + 30) / 60 + " min";
+        long m = (s + 30) / 60;
+        if (m < 2) return "a minute";
+        if (m < 60) return m + " min";
+        return m / 60 + " h" + (m % 60 == 0 ? "" : " " + m % 60 + " min");
     }
 
     /**

@@ -333,6 +333,7 @@ public class SeedTest {
         assertEquals("a minute", Syncer.duration(40));
         assertEquals("12 min", Syncer.duration(12 * 60));
         assertEquals("1 h 30 min", Syncer.duration(90 * 60));
+        assertEquals("2 h", Syncer.duration(2 * 3600 - 10));
     }
 
     @Test

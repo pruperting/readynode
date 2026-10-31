@@ -51,6 +51,32 @@ public class Broadcasts {
         write(d);
     }
 
+    // ------------------------------------------------------------------ read or not (this phone's own record)
+    static final int MAX_READ = 500;
+
+    /** Which broadcast this is: its sender and version, so an updated broadcast is new again. */
+    public static String key(JSONObject b) {
+        JSONObject f = b.optJSONObject("from");
+        return (f == null ? "" : f.optString("id")) + ":" + b.optLong("v");
+    }
+
+    /** The broadcasts marked read on this phone (keys from {@link #key}). */
+    public synchronized JSONArray readKeys() {
+        JSONArray r = read().optJSONArray("read");
+        return r == null ? new JSONArray() : r;
+    }
+
+    public synchronized void setRead(String key, boolean isRead) throws Exception {
+        if (key == null || !key.matches("[0-9a-f]{0,32}:\\d{1,19}")) return;
+        JSONObject d = read();
+        JSONArray old = d.optJSONArray("read"), now = new JSONArray();
+        if (old != null) for (int i = 0; i < old.length(); i++) if (!key.equals(old.optString(i))) now.put(old.optString(i));
+        if (isRead) now.put(key);
+        while (now.length() > MAX_READ) now.remove(0);              // the oldest marks go first
+        d.put("read", now);
+        write(d);
+    }
+
     // ------------------------------------------------------------------ this phone's own broadcast
     /** This phone's broadcast now, or null if it isn't broadcasting. */
     public synchronized JSONObject mine() {

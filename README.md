@@ -13,13 +13,17 @@ ReadyNet holds offline maps, survival and first-aid libraries, plain-English gui
 - **Packs.** For when phones can't reach each other: **Seed → Make a pack** puts this phone's ReadyNet into one `.rdynd` file, on an SD card, a USB-C stick or in Downloads to send on. Get it to another phone however you like, then open it, or use **Seed → Copy in a pack**. Maps are compressed (to about 56%); libraries that are already compressed are stored as they are, so a typical pack is 20–25% smaller than the files. Over 3.8 GB it splits into parts that each fit a FAT32 card, and an interrupted copy carries on where it stopped. Inside, a `.rdynd` is an ordinary zip with `readynet-pack.json` first.
 - **Where am I?** It shows your position as a Plus Code, a grid reference and latitude/longitude, from GPS only.
 - **Save battery.** It gives a short list of settings that make a phone last for days, with links straight to each one.
-- **Broadcasts (optional, off by default).** One short message per phone, passed from node to node. You can mute any sender.
+- **News and messages.** Write your own broadcast and your ReadyNet's messages, read the broadcasts you've received, mark them read (they leave the home page but stay under *Read* on News) and mute senders, all in one place.
+- **Broadcasts (optional, off by default).** One short message per phone, passed from node to node. Receiving is a setting in Sync.
+- **Updates from any ReadyNet.** When the ReadyNet you're on carries a newer ReadyNode, the app says so and one tap installs it. Android only accepts an update signed with the same key, so a stranger's ReadyNet can't push a fake one.
+- **Sharing timer.** Share can remind you after 1–8 hours, or stop by itself, because sharing keeps the phone awake.
+- **Help** in the menu (and on first launch), and a Help page on every ReadyNet.
 
 ## Install
 
 Download `ReadyNode.apk` from the [latest release](../../releases/latest) and open it. Android will ask you to allow installs from your browser or file manager. Or get it from any phone already sharing ReadyNet: open the address it shows and tap **Get the ReadyNode app**.
 
-It needs Android 8 or newer. It has no ads, no accounts and no tracking, and it never contacts the internet except when you tap **Seed**.
+It needs Android 8 or newer. It has no ads, no accounts and no tracking, and it never contacts the internet except when you tap **Seed**. Location is used only while *Where am I?* is open.
 
 ## Getting ReadyNet onto a phone
 
@@ -40,7 +44,7 @@ echo "sdk.dir=/path/to/android-sdk" > local.properties
 gradle testReleaseUnitTest assembleRelease
 ```
 
-The website in `site/`, the guides in `guides/` and `pack/pack.json` are copied into the app at build time. Release signing reads a `keystore.properties` file from outside the repo (path in `READYNODE_SIGNING`); without it, the release build is unsigned. To publish, put the signed APK at `ReadyNode.apk` in the repo root and run `tools/release.sh v3.3`.
+The website in `site/`, the guides in `guides/` and `pack/pack.json` are copied into the app at build time. Release signing reads a `keystore.properties` file from outside the repo (path in `READYNODE_SIGNING`); without it, the release build is unsigned. To publish, put the signed APK at `ReadyNode.apk` in the repo root and run `tools/release.sh v3.4`.
 
 ## The ReadyNet API
 

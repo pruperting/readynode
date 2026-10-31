@@ -65,17 +65,45 @@ public class BrowseActivity extends Activity {
 
     private boolean castsShown;
 
-    /** What ReadyNet's pages may ask the app. Harmless to any page: a setting, and the id this phone broadcasts under. */
+    /**
+     * What ReadyNet's pages may ask the app. Any ReadyNet's pages can call these, so they're all harmless: a setting,
+     * the id this phone broadcasts under, which broadcasts you've read, and opening the app's own Help or News screens.
+     */
+    static volatile boolean pagesChanged;
+
     static final class AppInfo {
         private final android.content.Context c;
+        private long lastOpen;
         AppInfo(android.content.Context c) { this.c = c; }
         @android.webkit.JavascriptInterface public boolean broadcasts() { return Node.broadcasts(c).receiving(); }
         @android.webkit.JavascriptInterface public String myId() { return Node.id(c); }
+        @android.webkit.JavascriptInterface public String readCasts() { return Node.broadcasts(c).readKeys().toString(); }
+        @android.webkit.JavascriptInterface public void setRead(String key, boolean read) {
+            try { Node.broadcasts(c).setRead(key, read); } catch (Exception ignored) { }
+        }
+        @android.webkit.JavascriptInterface public void openMessages() { open(MessagesActivity.class); }
+        @android.webkit.JavascriptInterface public void openHelp() { open(HelpActivity.class); }
+
+        private synchronized void open(Class<?> screen) {
+            long now = android.os.SystemClock.elapsedRealtime();
+            if (now - lastOpen < 1500) return;                    // a page can't open screens over and over
+            lastOpen = now;
+            c.startActivity(new Intent(c, screen).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        }
+    }
+
+    // the page's timers and any playing media stop while ReadyNode isn't on screen (battery)
+    @Override
+    protected void onPause() {
+        if (web != null) { web.onPause(); web.pauseTimers(); }
+        super.onPause();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+        if (web != null) { web.onResume(); web.resumeTimers(); }
+        if (web != null && pagesChanged) { pagesChanged = false; web.reload(); }   // messages or read marks changed in the app
         boolean now = Node.broadcasts(this).receiving();
         if (web != null && now != castsShown) {                 // the setting changed in Sync: show the page again
             castsShown = now;

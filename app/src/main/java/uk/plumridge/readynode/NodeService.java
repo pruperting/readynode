@@ -31,7 +31,13 @@ import java.util.List;
  * When it stops, the server goes back to answering this phone only (client mode).
  */
 public class NodeService extends Service {
-    public static final String ACTION_STOP = "uk.plumridge.readynode.STOP";
+    public static final String ACTION_STOP = "uk.plumridge.readynode.STOP", ACTION_MORE = "uk.plumridge.readynode.MORE";
+    private static final String REMIND_CHANNEL = "readynode-remind";
+    private static final int REMIND_ID = 4;
+    /** Choices for the sharing timer, in minutes (0: off). */
+    static final int[] TIMER_MINUTES = {0, 60, 120, 240, 480};
+    /** When sharing started, and when the timer next goes off (0: no timer), in System.currentTimeMillis(). */
+    static volatile long startedAt, remindAt;
     public static final String EXTRA_HOTSPOT = "hotspot";
     private static final String CHANNEL = "readynode";
 
@@ -63,6 +69,13 @@ public class NodeService extends Service {
             stopSelf();
             return START_NOT_STICKY;
         }
+        if (intent != null && ACTION_MORE.equals(intent.getAction())) {     // "Keep sharing" on the reminder, or a new setting
+            getSystemService(NotificationManager.class).cancel(REMIND_ID);
+            if (!running) { stopSelf(); return START_NOT_STICKY; }          // never starts sharing by itself
+            schedule();
+            return START_STICKY;
+        }
+        if (!running) { startedAt = System.currentTimeMillis(); schedule(); }
         startInForeground();
         try {
             Node.serve(this, true);
@@ -154,8 +167,49 @@ public class NodeService extends Service {
         }
     }
 
+    // ------------------------------------------------------------------ the sharing timer
+    private final Handler timer = new Handler(Looper.getMainLooper());
+    private final Runnable timeUp = this::timeUp;
+
+    /** Set (or reset) the timer from now, from the Share screen's setting. */
+    private void schedule() {
+        timer.removeCallbacks(timeUp);
+        int min = Node.prefs(this).getInt("shareTimerMin", 0);
+        if (min <= 0) { remindAt = 0; return; }
+        remindAt = System.currentTimeMillis() + min * 60_000L;
+        timer.postDelayed(timeUp, min * 60_000L);                // the wake lock keeps the phone awake for it
+    }
+
+    /** Called by the Share screen when the setting changes while sharing. */
+    static void timerChanged(Context c) {
+        if (running) c.startService(new Intent(c, NodeService.class).setAction(ACTION_MORE));
+    }
+
+    private void timeUp() {
+        String how = Syncer.duration((System.currentTimeMillis() - startedAt) / 1000);
+        NotificationManager nm = getSystemService(NotificationManager.class);
+        nm.createNotificationChannel(new NotificationChannel(REMIND_CHANNEL, "Sharing reminders", NotificationManager.IMPORTANCE_HIGH));
+        PendingIntent open = PendingIntent.getActivity(this, 5, SettingsActivity.open(this, SettingsActivity.SERVER), PendingIntent.FLAG_IMMUTABLE);
+        Notification.Builder b = new Notification.Builder(this, REMIND_CHANNEL).setSmallIcon(R.drawable.ic_stat).setContentIntent(open).setAutoCancel(true);
+        if (Node.prefs(this).getBoolean("shareAutoStop", false)) {
+            b.setContentTitle("ReadyNode stopped sharing").setContentText("It had been sharing for " + how + ", as set in Share. Start again there.");
+            try { nm.notify(REMIND_ID, b.build()); } catch (SecurityException ignored) { }
+            stopSelf();
+            return;
+        }
+        PendingIntent stop = PendingIntent.getService(this, 6, new Intent(this, NodeService.class).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent more = PendingIntent.getService(this, 7, new Intent(this, NodeService.class).setAction(ACTION_MORE), PendingIntent.FLAG_IMMUTABLE);
+        b.setContentTitle("Still sharing ReadyNet").setContentText("For " + how + " now. Sharing uses battery: stop if nobody needs it.")
+                .addAction(new Notification.Action.Builder(null, "Stop sharing", stop).build())
+                .addAction(new Notification.Action.Builder(null, "Keep sharing", more).build());
+        try { nm.notify(REMIND_ID, b.build()); } catch (SecurityException ignored) { }
+        schedule();                                              // and again after another stretch, if nobody answers
+    }
+
     @Override
     public void onDestroy() {
+        timer.removeCallbacksAndMessages(null);
+        startedAt = remindAt = 0;
         sampler.removeCallbacksAndMessages(null);
         if (reservation != null) { reservation.close(); reservation = null; }
         hotspotSsid = hotspotPass = null;

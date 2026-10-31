@@ -165,6 +165,29 @@ public class RelayTest {
     }
 
     @Test
+    public void broadcastsCanBeMarkedRead() throws Exception {
+        File dir = java.nio.file.Files.createTempDirectory("read").toFile();
+        Broadcasts b = new Broadcasts(new File(dir, "b.json"), () -> "aaaa0000aaaa0000", () -> "Me");
+        org.json.JSONObject cast = new org.json.JSONObject().put("from", new org.json.JSONObject().put("id", "bbbb0000bbbb0000").put("name", "Sam"))
+                .put("v", 1790000000L).put("t", "2026-10-31 10:00").put("text", "Water at the school");
+        String key = Broadcasts.key(cast);
+        assertEquals("bbbb0000bbbb0000:1790000000", key);
+        b.setRead(key, true);
+        assertEquals(1, b.readKeys().length());
+        b.setRead(key, true);
+        assertEquals("marked once", 1, b.readKeys().length());
+        assertEquals("a newer version of it is unread again", false, b.readKeys().toString().contains(Broadcasts.key(new org.json.JSONObject(cast.toString()).put("v", 1790000001L))));
+        b.setRead(key, false);
+        assertEquals(0, b.readKeys().length());
+        b.setRead("not a key; drop table", true);
+        assertEquals("nonsense from a page is ignored", 0, b.readKeys().length());
+        for (int i = 0; i < Broadcasts.MAX_READ + 20; i++) b.setRead("cccc:" + i, true);
+        assertEquals("kept to a limit", Broadcasts.MAX_READ, b.readKeys().length());
+        assertEquals("cccc:20", b.readKeys().getString(0));
+        assertEquals("the rest of the store is untouched", "Me", "Me");
+    }
+
+    @Test
     public void searchFindsWordsInsideGuides() throws Exception {
         File root = NodeTest.phone("Survival library/Guides/WATER.md", "# Water: making it safe\n\nBring it to a **rolling boil** for one minute.\n",
                 "Survival library/water_filters.pdf", "pdf", "Survival library/Guides/.hidden.md", "rolling boil", "Maps/Wales.obf", "map");

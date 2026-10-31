@@ -61,15 +61,14 @@ public class SettingsActivity extends Activity {
             {"Apps", "Android apps"}, {"Files", "Their shared files"}};
     private final Handler ui = new Handler(Looper.getMainLooper());
 
-    private TextView haveText;
+    private TextView haveText, timerText;
     private volatile Syncer.Offer lastOffer;
     private TextView connText, syncStatus, shareStatus, hotspotText, urlText, filesHint, versionText;
-    private EditText hostField, nameField, newsText, castText;
+    private EditText hostField, nameField;
     private final Map<String, CheckBox> ticks = new LinkedHashMap<>();
     private Button syncBtn, shareBtn;
     private ProgressBar syncBar;
-    private LinearLayout newsList, filesList, castList;
-    private TextView castNow;
+    private LinearLayout filesList;
     private CheckBox makeHotspot;
     private ImageView wifiQr, urlQr;
     private String lastQrKey = "", pendingFolder = "Media";
@@ -100,7 +99,22 @@ public class SettingsActivity extends Activity {
         ScrollView sv = new ScrollView(this);
         sv.addView(col);
         setContentView(sv);
+    }
+
+    // the once-a-second refresh runs only while this screen is showing (battery)
+    private final Runnable ticker = this::tick;
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        ui.removeCallbacks(ticker);
         tick();
+    }
+
+    @Override
+    protected void onPause() {
+        ui.removeCallbacks(ticker);                         // only the refresh: a running sync still reports back
+        super.onPause();
     }
 
     /** Client: this phone uses other ReadyNets and copies them. Plus the hidden Family (our HomeBox, Ready Kit). */
@@ -138,22 +152,17 @@ public class SettingsActivity extends Activity {
         col.addView(button("Look again", v -> { p.edit().putString("host", hostField.getText().toString().trim()).apply(); look(); }));
 
         col.addView(title("Broadcasts"));
-        col.addView(small("A broadcast is one short message from a ReadyNode that travels on from phone to phone, so news reaches "
-                + "people well beyond one hotspot. When this is on, this phone takes broadcasts from the ReadyNode phones it meets, "
-                + "shows them on its ReadyNet's News page, and passes them on. Each ReadyNode has only one broadcast at a time "
-                + "(a new one replaces the old), and you can mute any you don't want. Your own broadcast is on the Share screen."));
+        col.addView(small("Broadcasts are short messages that travel from phone to phone between ReadyNode apps. When this is on, this "
+                + "phone takes them from the ReadyNode phones it meets, shows them on News, and passes them on. Off: you see none, and "
+                + "this phone doesn't carry them (your own still goes out). Read them, mute senders and write your own in News and messages."));
         CheckBox receive = new CheckBox(this);
         receive.setText("Receive and pass on broadcasts");
         receive.setChecked(Node.broadcasts(this).receiving());
         receive.setOnCheckedChangeListener((b, on) -> {
             try { Node.broadcasts(this).setReceiving(on); } catch (Exception e) { toast("Couldn't save: " + e.getMessage()); }
-            showCasts();
         });
         col.addView(receive);
-        castList = new LinearLayout(this);
-        castList.setOrientation(LinearLayout.VERTICAL);
-        col.addView(castList);
-        showCasts();
+        col.addView(button("Open News and messages", v -> startActivity(new Intent(this, MessagesActivity.class))));
 
         versionText = small("ReadyNode " + Node.version(this));
         versionText.setPadding(0, dp(24), 0, dp(8));
@@ -184,6 +193,35 @@ public class SettingsActivity extends Activity {
         urlQr = qrView();
         col.addView(urlQr);
 
+        col.addView(title("Sharing timer"));
+        col.addView(small("Sharing keeps the phone and its Wi-Fi awake, which uses battery. Get a reminder after a while, or stop by itself."));
+        String[] labels = {"Off", "1 hour", "2 hours", "4 hours", "8 hours"};
+        android.widget.Spinner timer = new android.widget.Spinner(this);
+        timer.setAdapter(new android.widget.ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, labels));
+        int now = p.getInt("shareTimerMin", 0), at = 0;
+        for (int i = 0; i < NodeService.TIMER_MINUTES.length; i++) if (NodeService.TIMER_MINUTES[i] == now) at = i;
+        timer.setSelection(at, false);
+        timer.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(android.widget.AdapterView<?> a, View v, int pos, long id) {
+                if (p.getInt("shareTimerMin", 0) == NodeService.TIMER_MINUTES[pos]) return;
+                p.edit().putInt("shareTimerMin", NodeService.TIMER_MINUTES[pos]).apply();
+                NodeService.timerChanged(SettingsActivity.this);
+            }
+            @Override public void onNothingSelected(android.widget.AdapterView<?> a) { }
+        });
+        LinearLayout timerRow = new LinearLayout(this);
+        timerRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        timerRow.addView(body("Remind me after  "));
+        timerRow.addView(timer);
+        col.addView(timerRow);
+        CheckBox autoStop = new CheckBox(this);
+        autoStop.setText("Stop sharing then, instead of reminding me");
+        autoStop.setChecked(p.getBoolean("shareAutoStop", false));
+        autoStop.setOnCheckedChangeListener((b, on) -> p.edit().putBoolean("shareAutoStop", on).apply());
+        col.addView(autoStop);
+        timerText = small("");
+        col.addView(timerText);
+
         col.addView(title("Your ReadyNet's name"));
         col.addView(small("Shown at the top of your ReadyNet, so people know whose they've joined."));
         nameField = field("e.g. Rupert's phone", p.getString("name", ""), InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS);
@@ -193,48 +231,9 @@ public class SettingsActivity extends Activity {
             toast("Saved: your ReadyNet is called " + Node.name(this) + ".");
         }));
 
-        col.addView(title("Your broadcast"));
-        col.addView(small("One short message that travels on from phone to phone, to every ReadyNode with broadcasts turned on, "
-                + "well beyond your hotspot. You have one at a time: broadcasting again replaces it everywhere, and Stop takes it "
-                + "back, as phones meet. Anyone may see it, so nothing private. For example: \"Water point open at the school, 9 to 5\"."));
-        castText = field("Your broadcast (up to 500 letters)", "", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
-        castText.setSingleLine(false);
-        castText.setMinLines(2);
-        castText.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(Broadcasts.MAX_TEXT)});
-        col.addView(castText);
-        LinearLayout castRow = new LinearLayout(this);
-        castRow.addView(button("Broadcast", v -> {
-            try {
-                Node.broadcasts(this).broadcast(castText.getText().toString());
-                castText.setText("");
-                showMine();
-            } catch (Exception e) { toast("Couldn't broadcast: " + e.getMessage()); }
-        }), new LinearLayout.LayoutParams(0, -2, 1));
-        castRow.addView(button("Stop", v -> confirmThen("Stop broadcasting? It goes from other phones too, as they meet.", () -> {
-            Node.broadcasts(this).stop();
-            showMine();
-        })), new LinearLayout.LayoutParams(0, -2, 1));
-        col.addView(castRow);
-        castNow = body("");
-        col.addView(castNow);
-        showMine();
-
-        col.addView(title("Your messages"));
-        col.addView(small("Shown on your ReadyNet's News page, to people joined to you. They can reply; remove anything unhelpful."));
-        newsText = field("What's happening", "", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
-        newsText.setSingleLine(false);
-        newsText.setMinLines(2);
-        col.addView(newsText);
-        col.addView(button("Post", v -> {
-            try {
-                Node.news(this).post(Node.name(this), newsText.getText().toString());
-                newsText.setText("");
-                showNews();
-            } catch (Exception e) { toast("Couldn't post: " + e.getMessage()); }
-        }));
-        newsList = new LinearLayout(this);
-        newsList.setOrientation(LinearLayout.VERTICAL);
-        col.addView(newsList);
+        col.addView(title("Messages"));
+        col.addView(small("Your broadcast, and the messages on your ReadyNet's News page, are in News and messages."));
+        col.addView(button("Open News and messages", v -> startActivity(new Intent(this, MessagesActivity.class))));
 
         col.addView(title("Your files"));
         col.addView(small("Files you share show in your ReadyNet's Files section, in Media, Apps or Books. Sync never removes them."));
@@ -252,7 +251,6 @@ public class SettingsActivity extends Activity {
         TextView v = small("ReadyNode " + Node.version(this));
         v.setPadding(0, dp(24), 0, dp(8));
         col.addView(v);
-        showNews();
         showFiles();
     }
 
@@ -401,74 +399,6 @@ public class SettingsActivity extends Activity {
         }).start();
     }
 
-    // ------------------------------------------------------------------ messages
-    private void showNews() {
-        newsList.removeAllViews();
-        JSONArray items = Node.news(this).items();
-        if (items.length() == 0) newsList.addView(small("No messages yet."));
-        for (int i = 0; i < items.length(); i++) {
-            JSONObject it = items.optJSONObject(i);
-            if (it == null) continue;
-            String id = it.optString("id");
-            newsList.addView(card(it.optString("t") + "\n" + it.optString("text"), "Remove", () -> confirmThen("Remove this message and its replies?", () -> {
-                Node.news(this).delete(id, null);
-                showNews();
-            }), 0));
-            JSONArray rs = it.optJSONArray("replies");
-            if (rs != null) for (int j = 0; j < rs.length(); j++) {
-                JSONObject r = rs.optJSONObject(j);
-                String rid = r.optString("id");
-                newsList.addView(card(r.optString("t") + (r.optString("who").isEmpty() ? "" : " · " + r.optString("who")) + "\n" + r.optString("text"),
-                        "Remove", () -> confirmThen("Remove this reply?", () -> { Node.news(this).delete(id, rid); showNews(); }), dp(20)));
-            }
-        }
-    }
-
-    // ------------------------------------------------------------------ broadcasts
-    private void showMine() {
-        JSONObject m = Node.broadcasts(this).mine();
-        castNow.setText(m == null ? "Not broadcasting." : "Broadcasting since " + m.optString("t") + ":\n" + m.optString("text"));
-    }
-
-    private void showCasts() {
-        castList.removeAllViews();
-        Broadcasts b = Node.broadcasts(this);
-        if (!b.receiving()) {
-            castList.addView(small("Off: you won't see other people's broadcasts anywhere in ReadyNode, not even on another phone's ReadyNet, "
-                    + "and this phone doesn't take them in or pass them on. Your own broadcast (on Share) still goes out."));
-        } else {
-            String me = Node.id(this);
-            int n = 0;
-            try {
-                for (JSONObject c : b.visible()) {
-                    JSONObject from = c.getJSONObject("from");
-                    if (from.optString("id").equals(me)) continue;
-                    n++;
-                    String id = from.optString("id"), name = from.optString("name");
-                    castList.addView(card(name + " · " + c.optString("t") + (c.optString("via").isEmpty() ? "" : " · via " + c.optString("via"))
-                            + "\n" + c.optString("text"), "Mute", () -> confirmMute(id, name), 0));
-                }
-            } catch (Exception ignored) { }
-            if (n == 0) castList.addView(small("No broadcasts yet. They arrive when you're on another ReadyNode phone's hotspot with ReadyNode open."));
-        }
-        JSONArray muted = b.muted();
-        if (muted.length() > 0) castList.addView(small("Muted (their broadcasts are hidden and not passed on):"));
-        for (int i = 0; i < muted.length(); i++) {
-            JSONObject m = muted.optJSONObject(i);
-            if (m == null) continue;
-            String id = m.optString("id");
-            castList.addView(card(m.optString("name"), "Unmute", () -> { Node.broadcasts(this).unmute(id); showCasts(); }, 0));
-        }
-    }
-
-    private void confirmMute(String id, String name) {
-        new AlertDialog.Builder(this).setMessage("Mute " + name + "? Their broadcasts are hidden and not passed on, until you unmute them.")
-                .setPositiveButton("Mute", (d, w) -> {
-                    try { Node.broadcasts(this).mute(id, name); } catch (Exception e) { toast("Couldn't: " + e.getMessage()); }
-                    showCasts();
-                }).setNegativeButton("Cancel", null).show();
-    }
-
     // ------------------------------------------------------------------ own files
     private void showFiles() {
         if (filesList == null) return;                     // only the Share screen has it
@@ -568,10 +498,14 @@ public class SettingsActivity extends Activity {
             modeText.setText(on ? "This phone is sharing its ReadyNet (server mode). Stop sharing to go back to being a client."
                     : "Client mode: this phone uses other ReadyNets, and shows its own copy when there isn't one. To share yours, use Share in the menu.");
             backToClient.setVisibility(on ? View.VISIBLE : View.GONE);
-            ui.postDelayed(this::tick, 1000);
+            ui.postDelayed(ticker, 1000);
             return;
         }
         shareBtn.setText(on ? "Stop sharing" : "Start sharing (server)");
+        long started = NodeService.startedAt, remind = NodeService.remindAt, nowMs = System.currentTimeMillis();
+        timerText.setText(!on || started == 0 ? "" : "Sharing for " + Syncer.duration((nowMs - started) / 1000)
+                + (remind > nowMs ? (Node.prefs(this).getBoolean("shareAutoStop", false) ? "; stops in " : "; reminder in ")
+                + Syncer.duration((remind - nowMs) / 1000) : "") + ".");
         makeHotspot.setEnabled(!on);
         List<String> urls = NodeService.addresses(this);
         String ssid = NodeService.hotspotSsid, pass = NodeService.hotspotPass;
@@ -596,7 +530,7 @@ public class SettingsActivity extends Activity {
             setQr(wifiQr, on && ssid != null ? "WIFI:T:" + (pass == null ? "nopass" : "WPA") + ";S:" + qrEscape(ssid) + ";P:" + qrEscape(pass == null ? "" : pass) + ";;" : null);
             setQr(urlQr, url);
         }
-        ui.postDelayed(this::tick, 1000);
+        ui.postDelayed(ticker, 1000);
     }
 
     // ------------------------------------------------------------------ small UI helpers

@@ -156,15 +156,20 @@ async function home() {
     tiles.push(`<a class="tile${n === 0 ? " muted" : ""}" href="#/${s.id === "news" ? "news" : "s/" + s.id}"><strong>${esc(s.title)}</strong><span>${esc(s.about)}${n === 0 ? " (Nothing here yet.)" : ""}</span></a>`);
   }
   if (android && !inApp) tiles.push(`<a class="tile get" href="#/app"><strong>Get the ReadyNode app</strong><span>Carry all of this on your phone, and share it on with others.</span></a>`);
+  tiles.push(`<a class="tile" href="#/help"><strong>Help</strong><span>What ReadyNet is, and how to use it.</span></a>`);
   let news = [], casts = [];
   try { const d = await getJSON("/api/net/news"); news = d.items || []; casts = liveCasts(d); } catch (e) { /* none */ }
+  const read = readKeys(), me = myId();
+  const unread = casts.filter(b => !read.has(castKey(b)) && !(b.from && b.from.id === me)), others = casts.filter(b => !(b.from && b.from.id === me));
   const pw = info.power;
   view(`<h1>${esc(info.name)}</h1>
     <p class="meta">ReadyNet: emergency information shared over Wi-Fi, with no internet needed.</p>
     ${pw && pw.pct <= 20 && !pw.charging ? `<div class="flash"><b>The phone sharing this ReadyNet is low on battery (${pw.pct}%).</b> Download only what you need, and soon.</div>` : ""}
     ${news.length ? `<h2>Latest news</h2><div class="list" style="margin-bottom:16px">${news.slice(0, 3).map(n => newsItem(n, false)).join("")}</div>
       ${news.length > 3 ? `<p><a href="#/news">All ${news.length} messages</a></p>` : ""}` : ""}
-    ${casts.length ? `<p><a href="#/news">${casts.length} ${casts.length === 1 ? "broadcast" : "broadcasts"} from ReadyNode phones</a></p>` : ""}
+    ${unread.length ? `<h2>Broadcasts</h2><div class="list" style="margin-bottom:8px">${unread.slice(0, 3).map(b => castItem(b, "read")).join("")}</div>
+      <p>${unread.length > 1 ? `<button class="ghost small" data-readall="${esc(unread.map(castKey).join(","))}">Mark all read</button> ` : ""}${unread.length > 3 ? `<a href="#/news">${unread.length - 3} more on News</a>` : ""}</p>`
+      : others.length ? `<p class="meta"><a href="#/news">${others.length} ${others.length === 1 ? "broadcast" : "broadcasts"}, all read: on News</a></p>` : ""}
     <form class="searchbar" onsubmit="location.hash='#/search?q='+encodeURIComponent(this.q.value);return false">
       <input name="q" type="search" placeholder="Search guides, maps, books, apps…" aria-label="Search"><button>Search</button></form>
     <div class="tiles">${tiles.join("")}</div>`);
@@ -185,12 +190,36 @@ function newsItem(n, full) {
    (this phone's own still shows). Browsers, and the app with it on, see them all. */
 function castsOff() { try { return !!window.ReadyNodeApp && !window.ReadyNodeApp.broadcasts(); } catch (e) { return false; } }
 function myId() { try { return window.ReadyNodeApp ? String(window.ReadyNodeApp.myId()) : ""; } catch (e) { return ""; } }
-const liveCasts = doc => (doc.broadcasts || []).filter(b => !b.removed && b.text && !(castsOff() && !(b.from && b.from.id === myId())));
+const liveCasts = doc => (doc.broadcasts || []).filter(b => !b.removed && b.text && !(castsOff() && !(b.from && b.from.id === myId())))
+  .sort((a, b) => String(b.t || "").localeCompare(String(a.t || "")));     // newest first
 
-function castItem(b) {
-  return `<div class="msg"><span class="src passed">Broadcast from ${esc(b.from && b.from.name)}${b.via ? " · via " + esc(b.via) : ""}</span>` +
-    `<span class="src">${esc(b.t || "")}</span><pre class="plain">${esc(b.text)}</pre></div>`;
+function castItem(b, action) {
+  const mine = b.from && b.from.id === myId();
+  return `<div class="msg"><span class="src passed">${mine ? "Your broadcast" : "Broadcast from " + esc(b.from && b.from.name)}${b.via ? " · via " + esc(b.via) : ""}</span>` +
+    `<span class="src">${esc(b.t || "")}</span><pre class="plain">${esc(b.text)}</pre>` +
+    (action && !mine ? `<button class="ghost small" data-read="${esc(castKey(b))}" data-on="${action === "read" ? 1 : 0}">${action === "read" ? "Mark read" : "Mark unread"}</button>` : "") + `</div>`;
 }
+
+/* Read broadcasts leave the home page and wait under "Read" on News. In the app the app keeps the list (the same on
+   every ReadyNet it shows); in a browser, that browser does. */
+const castKey = b => (b.from && b.from.id || "") + ":" + (b.v || 0);
+function readKeys() {
+  try { if (window.ReadyNodeApp && window.ReadyNodeApp.readCasts) return new Set(JSON.parse(window.ReadyNodeApp.readCasts())); } catch (e) { /* older app */ }
+  try { return new Set(JSON.parse(store.get("rn-read") || "[]")); } catch (e) { return new Set(); }
+}
+function setRead(key, on) {
+  try { if (window.ReadyNodeApp && window.ReadyNodeApp.setRead) { window.ReadyNodeApp.setRead(key, !!on); return; } } catch (e) { /* older app */ }
+  const s = readKeys();
+  if (on) s.add(key); else s.delete(key);
+  store.set("rn-read", JSON.stringify([...s].slice(-500)));
+}
+document.addEventListener("click", ev => {
+  const b = ev.target.closest && ev.target.closest("[data-read],[data-readall]");
+  if (!b) return;
+  if (b.dataset.readall) b.dataset.readall.split(",").forEach(k => setRead(k, true));
+  else setRead(b.dataset.read, b.dataset.on === "1");
+  route();
+});
 
 async function newsPage() {
   let doc = {};
@@ -201,8 +230,14 @@ async function newsPage() {
     <div class="list">${items.length ? items.map(n => newsItem(n, true)).join("") : `<div class="empty">No messages yet.</div>`}</div>
     ${castsOff() && (doc.broadcasts || []).some(b => !b.removed && b.text && !(b.from && b.from.id === myId())) ?
       `<p class="note">Broadcasts from other ReadyNodes are hidden: receiving them is off in ReadyNode (Sync → Broadcasts).</p>` : ""}
-    ${casts.length ? `<h2>Broadcasts</h2><p class="note">One short message from each ReadyNode phone, passed on from phone to phone.
-      They may have come a long way, so check the time.</p><div class="list">${casts.map(castItem).join("")}</div>` : ""}`);
+    ${inApp && window.ReadyNodeApp && window.ReadyNodeApp.openMessages ? `<p><button class="ghost" onclick="ReadyNodeApp.openMessages()">Write a message or broadcast</button></p>` : ""}
+    ${casts.length ? (() => {
+      const read = readKeys(), unread = casts.filter(b => !read.has(castKey(b))), done = casts.filter(b => read.has(castKey(b)));
+      return `<h2>Broadcasts</h2><p class="note">One short message from each ReadyNode phone, passed on from phone to phone.
+        They may have come a long way, so check the time.</p>
+        <div class="list">${unread.length ? unread.map(b => castItem(b, "read")).join("") : `<div class="empty">No unread broadcasts.</div>`}</div>
+        ${done.length ? `<details class="read"><summary>Read (${done.length})</summary><div class="list">${done.map(b => castItem(b, "unread")).join("")}</div></details>` : ""}`;
+    })() : ""}`);
   document.querySelectorAll("form.replyform").forEach(f => f.onsubmit = async ev => {
     ev.preventDefault();
     const msg = f.querySelector("[data-msg]"), d = new Date(), pad = x => String(x).padStart(2, "0");
@@ -362,6 +397,38 @@ function markdown(src) {
   return out.join("\n");
 }
 
+/* ------------------------------------------------------------------ help */
+function helpPage() {
+  const appHelp = inApp && window.ReadyNodeApp && window.ReadyNodeApp.openHelp;
+  view(`<div class="crumbs"><a href="#/">Home</a></div><h1>Help</h1>
+    ${appHelp ? `<p><button onclick="ReadyNodeApp.openHelp()">Help with the ReadyNode app</button></p>` : ""}
+    <div class="doc">
+    <h2>What this is</h2>
+    <p>ReadyNet is emergency information you can use with no internet or phone signal: offline maps, survival and first-aid
+    guides, reference libraries, the free apps that open them, and news. You're reading it from <b>${esc(info.name)}</b>
+    over Wi-Fi. Everything stays on this Wi-Fi; nothing goes to the internet.</p>
+    <h2>Finding your way round</h2>
+    <ul>
+      <li><b>News</b>: messages from whoever runs this ReadyNet. Anyone can reply, and everyone here can read replies, so keep them public.</li>
+      <li><b>Offline maps</b>, <b>Survival library</b> and <b>Knowledge</b>: download what you need. Maps open in OsmAnd and libraries in Kiwix: install those from Android apps first.</li>
+      <li><b>Search</b> finds file names and words inside the guides.</li>
+      <li>The guides (water, saving battery, Plus Codes and more) open right here.</li>
+    </ul>
+    <h2>Broadcasts</h2>
+    <p>Short messages that travel from phone to phone between ReadyNode apps. Tap <b>Mark read</b> to clear one from the home page;
+    it stays under <b>Read</b> on the News page.</p>
+    <h2>Take it with you</h2>
+    <p>${android ? `Android: <a href="#/app">get the ReadyNode app</a>. It copies ReadyNet onto your phone, so you have it anywhere, and lets you share it on to others the same way.`
+      : `On an iPhone you can use any ReadyNet like this one, but you can't carry a copy. Install the apps you'd need (offline maps, Kiwix) from the App Store before you need them.`}</p>
+    <h2>If something won't load</h2>
+    <ul>
+      <li>Stay on this Wi-Fi. If the phone says "no internet", choose to stay connected anyway, or turn mobile data off for a moment.</li>
+      <li>Very old phones get a simpler version of these pages automatically.</li>
+      <li>In an emergency, call 999. With a SIM in, the call goes through on any mobile network with signal, not just yours.</li>
+    </ul>
+    </div>`);
+}
+
 /* ------------------------------------------------------------------ router */
 async function route() {
   const h = location.hash.slice(1) || "/";
@@ -379,6 +446,7 @@ async function route() {
       case "view": return await viewFile(rest);
       case "search": return await search(q.get("q") || "");
       case "app": return getApp();
+      case "help": return helpPage();
       default: return await home();
     }
   } catch (e) {

@@ -13,7 +13,7 @@ import android.view.MenuItem;
  * Settings (sync, your name, messages, your files, server mode) are in the menu.
  */
 public class MainActivity extends BrowseActivity {
-    private static final int SYNC = 1, SHARE = 4, SWITCH = 2, RELOAD = 3, WHERE = 5, BATTERY = 6, SEED = 7;
+    private static final int SYNC = 1, SHARE = 4, SWITCH = 2, RELOAD = 3, WHERE = 5, BATTERY = 6, SEED = 7, NEWS = 8, HELP = 9;
 
     static volatile Finder.Found live;     // the ReadyNet this phone last found on its Wi-Fi (Settings syncs from it)
     private boolean showingLive, pinned;
@@ -22,12 +22,15 @@ public class MainActivity extends BrowseActivity {
     @Override
     protected void start() {
         setTitle("ReadyNode");
+        if (Updater.ACTION.equals(getIntent().getAction())) Updater.offer(this);
         if (!fromLink(getIntent())) decide(true);
+        if (!Node.prefs(this).getBoolean("seenHelp", false)) startActivity(new Intent(this, HelpActivity.class));   // the first time
     }
 
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        if (intent != null && Updater.ACTION.equals(intent.getAction())) { Updater.offer(this); return; }
         fromLink(intent);
     }
 
@@ -57,6 +60,15 @@ public class MainActivity extends BrowseActivity {
         new Thread(() -> {
             Finder.Found f = Finder.find(this, Node.prefs(this).getString("host", ""));
             live = f;
+            if (f != null) new Thread(() -> {                    // a newer ReadyNode there? Ask once per version
+                Updater.check(this, f.base, f.name);
+                Updater.Available u = Updater.available;
+                if (u != null) runOnUiThread(this::invalidateOptionsMenu);
+                if (u != null && Node.prefs(this).getLong("updAsked", 0) != u.code) {
+                    Node.prefs(this).edit().putLong("updAsked", u.code).apply();
+                    runOnUiThread(() -> { if (!isFinishing()) Updater.offer(this); });
+                }
+            }).start();
             if (f != null) new Thread(() -> {                    // swap broadcasts, if it takes part in them
                 Relay.Result r = Node.relayNews(this, f, false);
                 if (r != null && r.got > 0) runOnUiThread(() -> android.widget.Toast.makeText(this, r.got
@@ -99,10 +111,13 @@ public class MainActivity extends BrowseActivity {
         m.add(0, SYNC, 0, "Sync").setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
         m.add(0, SHARE, 0, "Share").setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
         m.add(0, SEED, 0, "Seed").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
+        m.add(0, NEWS, 1, "News and messages");
         m.add(0, WHERE, 1, "Where am I?");
         m.add(0, BATTERY, 1, "Save battery");
         m.add(0, SWITCH, 1, "Show my copy");
         m.add(0, RELOAD, 2, "Look for a ReadyNet again");
+        m.add(0, HELP, 3, "Help");
+        if (Updater.available != null) m.add(0, 10, 0, "Update ReadyNode").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
         return true;
     }
 
@@ -117,6 +132,15 @@ public class MainActivity extends BrowseActivity {
         switch (item.getItemId()) {
             case SYNC:
                 startActivity(SettingsActivity.open(this, SettingsActivity.CLIENT));
+                return true;
+            case NEWS:
+                startActivity(new Intent(this, MessagesActivity.class));
+                return true;
+            case 10:
+                Updater.offer(this);
+                return true;
+            case HELP:
+                startActivity(new Intent(this, HelpActivity.class));
                 return true;
             case WHERE:
                 startActivity(new Intent(this, LocationActivity.class));

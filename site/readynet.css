@@ -104,3 +104,8 @@ form.replyform textarea{min-height:60px}
 form.replyform .row>*{flex:1 1 120px}
 .note{font-size:14px;color:var(--muted);margin:6px 0 12px}
 .msg .src.passed{display:block;color:var(--warn);margin-bottom:2px}
+
+/* broadcasts: mark read, and the read ones folded away on News */
+button.small{padding:5px 10px;font-size:13px;font-weight:600;margin-top:6px}
+details.read{margin-top:12px}
+details.read summary{cursor:pointer;font-weight:700;color:var(--muted);padding:6px 0}
