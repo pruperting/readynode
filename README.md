@@ -40,7 +40,7 @@ echo "sdk.dir=/path/to/android-sdk" > local.properties
 gradle testReleaseUnitTest assembleRelease
 ```
 
-The website in `site/`, the guides in `guides/` and `pack/pack.json` are copied into the app at build time. Release signing reads a `keystore.properties` file from outside the repo (path in `READYNODE_SIGNING`); without it, the release build is unsigned. To publish, put the signed APK at `ReadyNode.apk` in the repo root and run `tools/release.sh v3.2`.
+The website in `site/`, the guides in `guides/` and `pack/pack.json` are copied into the app at build time. Release signing reads a `keystore.properties` file from outside the repo (path in `READYNODE_SIGNING`); without it, the release build is unsigned. To publish, put the signed APK at `ReadyNode.apk` in the repo root and run `tools/release.sh v3.3`.
 
 ## The ReadyNet API
 

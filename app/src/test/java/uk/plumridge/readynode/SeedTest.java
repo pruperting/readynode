@@ -308,6 +308,34 @@ public class SeedTest {
     }
 
     @Test
+    public void aSyncCarriesOnWhereADroppedConnectionLeftOff() throws Exception {
+        Internet other = new Internet(18103);                     // a ReadyNet whose Wi-Fi drops halfway through a big file
+        byte[] map = new byte[3 << 20];
+        new java.util.Random(3).nextBytes(map);
+        String sha = Syncer.hex(java.security.MessageDigest.getInstance("SHA-256").digest(map));
+        other.files.put("/api/net/manifest", new JSONObject().put("readynet", 1).put("name", "Flaky phone").put("kind", "node").put("id", "f1")
+                .put("files", new JSONArray().put(new JSONObject().put("path", "Maps/Big.obf").put("section", "Maps").put("size", map.length)
+                        .put("mtime", 1700000000).put("sha256", sha))).toString().getBytes());
+        other.files.put("/net/Maps/Big.obf", map);
+        other.dropOnce.add("/net/Maps/Big.obf");
+        other.start(5000, true);
+        try {
+            File phone = NodeTest.phone();
+            List<String> shown = new java.util.ArrayList<>();
+            Syncer.Result r = NodeTest.syncer(phone).run("127.0.0.1:18103", NodeTest.ALL_BUT_FILES, Syncer.ALWAYS, (m, d, t) -> shown.add(m));
+            assertEquals(r.lastError, 0, r.failed);
+            assertArrayEquals(map, Files.readAllBytes(new File(phone, "Maps/Big.obf").toPath()));
+            assertEquals("asked for the rest, not the whole file again", 1, other.resumed.size());
+            assertFalse(other.resumed.get(0).endsWith("@0"));
+        } finally {
+            other.stop();
+        }
+        assertEquals("a minute", Syncer.duration(40));
+        assertEquals("12 min", Syncer.duration(12 * 60));
+        assertEquals("1 h 30 min", Syncer.duration(90 * 60));
+    }
+
+    @Test
     public void appFileNamesWorkOnEveryCard() {
         assertEquals("Markor (notes - write and keep longer notes)", Seeder.fileName("Markor (notes: write and keep longer notes)"));
         assertEquals("a-b-c-d-e", Seeder.fileName("a/b*c?d|e"));

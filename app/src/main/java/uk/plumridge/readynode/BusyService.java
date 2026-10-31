@@ -14,7 +14,7 @@ import android.os.IBinder;
 import android.os.PowerManager;
 
 /**
- * Keeps the phone working on a long job (seeding, making or copying in a pack) with the screen off: a notification
+ * Keeps the phone working on a long job (syncing, seeding, making or copying in a pack) with the screen off: a notification
  * shows it's running, and the phone's processor and Wi-Fi stay awake until the job says it's done. Without this,
  * Android pauses the app soon after the screen goes off and downloads time out.
  */
@@ -43,8 +43,8 @@ public class BusyService extends Service {
         String text = intent == null ? null : intent.getStringExtra(EXTRA_TEXT);
         NotificationManager nm = getSystemService(NotificationManager.class);
         if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(CHANNEL) == null)
-            nm.createNotificationChannel(new NotificationChannel(CHANNEL, "Downloads and packs", NotificationManager.IMPORTANCE_LOW));
-        PendingIntent open = PendingIntent.getActivity(this, 0, new Intent(this, SeedActivity.class), PendingIntent.FLAG_IMMUTABLE);
+            nm.createNotificationChannel(new NotificationChannel(CHANNEL, "Syncing, downloads and packs", NotificationManager.IMPORTANCE_LOW));
+        PendingIntent open = PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class), PendingIntent.FLAG_IMMUTABLE);
         Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this, CHANNEL) : new Notification.Builder(this);
         Notification n = b.setSmallIcon(R.drawable.ic_stat).setContentTitle("ReadyNode is working")
                 .setContentText(text == null ? "Keep the phone on charge if you can" : text).setOngoing(true).setOnlyAlertOnce(true)

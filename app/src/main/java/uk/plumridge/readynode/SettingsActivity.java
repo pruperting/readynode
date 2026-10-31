@@ -363,14 +363,20 @@ public class SettingsActivity extends Activity {
         syncBtn.setText("Cancel");
         syncBar.setVisibility(View.VISIBLE);
         syncBar.setIndeterminate(true);
+        BusyService.show(this, "Syncing from " + f.name);           // keeps this phone and its Wi-Fi awake with the screen off
+        long[] noted = {0};
         new Thread(() -> {
             String msg;
             try {
                 SharedPreferences p = Node.prefs(this);
-                Syncer.Result r = s.run(f.base, chosen, this::askRemove, (m, done, total) -> ui.post(() -> {
-                    syncStatus.setText(m);
-                    if (total > 0) { syncBar.setIndeterminate(false); syncBar.setProgress((int) (done * 100 / total)); }
-                }));
+                Syncer.Result r = s.run(f.base, chosen, this::askRemove, (m, done, total) -> {
+                    long now = System.currentTimeMillis();
+                    if (now - noted[0] > 5000) { noted[0] = now; BusyService.show(this, m); }
+                    ui.post(() -> {
+                        syncStatus.setText(m);
+                        if (total > 0) { syncBar.setIndeterminate(false); syncBar.setProgress((int) (done * 100 / total)); }
+                    });
+                });
                 if (r.failed == 0) p.edit().putLong("lastSyncTime", System.currentTimeMillis()).putString("lastSyncFrom", r.from).apply();
                 Relay.Result news = Node.relayNews(this, f, true);
                 msg = "Synced " + DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(new Date()) + " from " + r.from + ": "
@@ -383,6 +389,7 @@ public class SettingsActivity extends Activity {
                 msg = "Couldn't sync: " + (ex.getMessage() == null ? ex.toString() : ex.getMessage()) + ".";
             }
             String fin = msg;
+            BusyService.done(this);
             ui.post(() -> {
                 syncer = null;
                 syncBtn.setText("Sync now");

@@ -208,6 +208,7 @@ public class Syncer {
         }
 
         long done = total - sumSizes(todo);
+        long[] started = {System.currentTimeMillis(), 0};                 // {when, bytes copied since}: for speed and time left
         for (int i = 0; i < todo.length() && !cancelled; i++) {
             JSONObject f = todo.getJSONObject(i);
             String path = clean(f.optString("path"));
@@ -216,7 +217,7 @@ public class Syncer {
             File dest = new File(root, path);
             progress.update("Copying " + path, done, total);
             try {
-                download(base + "/net/" + NodeServer.enc(path), dest, size, sha);
+                download(base + "/net/" + NodeServer.enc(path), dest, size, sha, new Meter(progress, path, done, total, started));
                 if (mtime > 0) dest.setLastModified(mtime * 1000);
                 res.downloaded++;
                 res.bytes += size;
@@ -334,28 +335,91 @@ public class Syncer {
         }
     }
 
-    /** Download to a .part file, check size (and checksum if given), then swap it in place in one step. */
-    private void download(String url, File dest, long expected, String sha) throws IOException {
+    /** Shows progress within a file, with the speed and roughly how long is left, about once a second. */
+    static final class Meter {
+        final Progress progress;
+        final String path;
+        final long before, total;
+        final long[] started;
+        long shown;
+
+        Meter(Progress progress, String path, long before, long total, long[] started) {
+            this.progress = progress; this.path = path; this.before = before; this.total = total; this.started = started;
+        }
+
+        void add(int n, long inFile, long size) {
+            started[1] += n;
+            long now = System.currentTimeMillis();
+            if (now - shown < 1000) return;
+            shown = now;
+            double secs = Math.max(1, (now - started[0]) / 1000.0), rate = started[1] / secs;      // bytes a second, this sync
+            long left = total - before - inFile;
+            String eta = rate < 1 ? "" : " · about " + duration((long) (left / rate)) + " left";
+            progress.update("Copying " + path + ": " + NodeServer.human(inFile) + " of " + NodeServer.human(size)
+                    + " · " + String.format(java.util.Locale.UK, "%.1f", rate / 1e6) + " MB/s" + eta, before + inFile, total);
+        }
+    }
+
+    static String duration(long s) {
+        if (s < 90) return "a minute";
+        if (s < 3600) return (s + 30) / 60 + " min";
+        return s / 3600 + " h " + (s % 3600 + 30) / 60 + " min";
+    }
+
+    /**
+     * Download to a .part file, check size (and checksum if given), then swap it in place in one step. A dropped
+     * connection carries on from where it got to (a few times), rather than starting a big file again.
+     */
+    private void download(String url, File dest, long expected, String sha, Meter meter) throws IOException {
         dest.getParentFile().mkdirs();
         File part = new File(dest.getParentFile(), "." + dest.getName() + ".part");
-        HttpURLConnection c = opener.open(new URL(url));
-        c.setConnectTimeout(8000);
-        c.setReadTimeout(30000);
-        int code = c.getResponseCode();
-        if (code != 200) { c.disconnect(); throw new HttpError(code); }
-        MessageDigest md = sha.isEmpty() ? null : sha256();
-        try (InputStream in = c.getInputStream(); OutputStream out = new FileOutputStream(part)) {
-            copy(in, out, md);
-        } catch (IOException e) {
-            part.delete();
-            throw e;
-        } finally {
-            c.disconnect();
+        part.delete();
+        IOException last = null;
+        MessageDigest md = null;
+        boolean resumed = false;
+        for (int attempt = 0; attempt < 4 && !cancelled; attempt++) {
+            if (attempt > 0) try { Thread.sleep(2000L * attempt); } catch (InterruptedException e) { break; }
+            long have = part.isFile() ? part.length() : 0;
+            HttpURLConnection c;
+            int code;
+            try {
+                c = opener.open(new URL(url));
+                c.setConnectTimeout(8000);
+                c.setReadTimeout(30000);
+                if (have > 0) c.setRequestProperty("Range", "bytes=" + have + "-");
+                code = c.getResponseCode();
+            } catch (IOException e) { last = e; continue; }
+            try {
+                if (code == 200) have = 0;
+                else if (code != 206 || have == 0) throw new HttpError(code);
+                if (have > 0) resumed = true;
+                md = sha.isEmpty() || have > 0 ? null : sha256();       // checked as it arrives, unless it's a resumed copy
+                try (InputStream in = c.getInputStream(); OutputStream out = new FileOutputStream(part, have > 0)) {
+                    copy(in, out, md, meter, have, expected);
+                }
+                if (part.length() >= expected) { last = null; break; }
+                last = new IOException("the connection dropped");
+            } catch (HttpError e) {
+                part.delete();
+                throw e;
+            } catch (IOException e) {
+                if (cancelled) { part.delete(); throw e; }
+                last = e;
+            } finally {
+                c.disconnect();
+            }
         }
+        if (last != null || cancelled) { part.delete(); throw last != null ? last : new IOException("Sync cancelled"); }
         if (part.length() != expected) { part.delete(); throw new IOException("Incomplete download"); }
-        if (md != null && !sha.equals(hex(md.digest()))) {
-            part.delete();
-            throw new IOException("didn't match its checksum, so it wasn't kept");
+        if (!sha.isEmpty()) {                                    // a resumed copy is checked over the whole file afterwards
+            if (resumed || md == null) {
+                md = sha256();
+                try (InputStream in = new FileInputStream(part)) { copy(in, null, md, null, 0, 0); }
+            }
+            if (!sha.equals(hex(md.digest()))) {
+                part.delete();
+                throw new IOException("didn't match its checksum, so it wasn't kept");
+            }
         }
         try {
             Files.move(part.toPath(), dest.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
@@ -367,13 +431,18 @@ public class Syncer {
         }
     }
 
-    private void copy(InputStream in, OutputStream out, MessageDigest md) throws IOException {
-        byte[] buf = new byte[64 * 1024];
+    private void copy(InputStream in, OutputStream out, MessageDigest md) throws IOException { copy(in, out, md, null, 0, 0); }
+
+    private void copy(InputStream in, OutputStream out, MessageDigest md, Meter meter, long from, long size) throws IOException {
+        byte[] buf = new byte[256 * 1024];
         int n;
+        long at = from;
         while ((n = in.read(buf)) > 0) {
             if (cancelled) throw new IOException("Sync cancelled");
-            out.write(buf, 0, n);
+            if (out != null) out.write(buf, 0, n);
             if (md != null) md.update(buf, 0, n);
+            at += n;
+            if (meter != null) meter.add(n, at, size);
         }
     }
 
