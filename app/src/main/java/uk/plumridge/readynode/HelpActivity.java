@@ -37,7 +37,7 @@ public class HelpActivity extends Screen {
         section("Sharing with others",
                 "Share turns this phone into a ReadyNet for everyone near you: it can make a hotspot, and shows QR codes for joining. "
                         + "Others open the address in any browser (iPhones too), or install ReadyNode from you and copy the lot. "
-                        + "Sharing uses battery, so set a timer in Share to be reminded, or to stop by itself.");
+                        + "Sharing uses battery, so set a timer in Share (5 minutes to 12 hours) to be reminded, or to stop by itself.");
 
         section("News and broadcasts",
                 "News is messages from whoever runs a ReadyNet; anyone there can reply. Broadcasts are short messages that travel from phone "

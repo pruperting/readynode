@@ -34,8 +34,32 @@ public class NodeService extends Service {
     public static final String ACTION_STOP = "uk.plumridge.readynode.STOP", ACTION_MORE = "uk.plumridge.readynode.MORE";
     private static final String REMIND_CHANNEL = "readynode-remind";
     private static final int REMIND_ID = 4;
-    /** Choices for the sharing timer, in minutes (0: off). */
-    static final int[] TIMER_MINUTES = {0, 60, 120, 240, 480};
+    /** The sharing timer's choices: 5 to 60 minutes in fives, or 1 to 12 hours. The setting is kept in minutes (0: off). */
+    static final int[] TIMER_MINS = {5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60};
+    static final int[] TIMER_HOURS = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
+
+    /** The choices for one unit. */
+    static int[] timerChoices(boolean hours) { return hours ? TIMER_HOURS : TIMER_MINS; }
+
+    /** Which unit and which choice best show a setting in minutes: {index, 1 if hours}. Over an hour shows in hours. */
+    static int[] timerPick(int minutes) {
+        boolean hours = minutes > 60;
+        return new int[]{nearest(timerChoices(hours), hours ? minutes / 60.0 : minutes), hours ? 1 : 0};
+    }
+
+    /** The index of the choice nearest a value (the smaller one on a tie, as shorter saves battery). */
+    static int nearest(int[] choices, double value) {
+        int best = 0;
+        for (int i = 1; i < choices.length; i++) if (Math.abs(choices[i] - value) < Math.abs(choices[best] - value)) best = i;
+        return best;
+    }
+
+    /** A choice in minutes. */
+    static int timerMinutes(int index, boolean hours) {
+        int[] c = timerChoices(hours);
+        int v = c[Math.max(0, Math.min(index, c.length - 1))];
+        return hours ? v * 60 : v;
+    }
     /** When sharing started, and when the timer next goes off (0: no timer), in System.currentTimeMillis(). */
     static volatile long startedAt, remindAt;
     public static final String EXTRA_HOTSPOT = "hotspot";

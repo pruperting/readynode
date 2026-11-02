@@ -195,24 +195,52 @@ public class SettingsActivity extends Activity {
 
         col.addView(title("Sharing timer"));
         col.addView(small("Sharing keeps the phone and its Wi-Fi awake, which uses battery. Get a reminder after a while, or stop by itself."));
-        String[] labels = {"Off", "1 hour", "2 hours", "4 hours", "8 hours"};
-        android.widget.Spinner timer = new android.widget.Spinner(this);
-        timer.setAdapter(new android.widget.ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, labels));
-        int now = p.getInt("shareTimerMin", 0), at = 0;
-        for (int i = 0; i < NodeService.TIMER_MINUTES.length; i++) if (NodeService.TIMER_MINUTES[i] == now) at = i;
-        timer.setSelection(at, false);
-        timer.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+        // On/off, then an amount (5-60 in fives, or 1-12) and a unit (minutes or hours). The setting is kept in
+        // minutes in shareTimerMin (0: off); shareTimerLast keeps the amount while the timer is off.
+        int now = p.getInt("shareTimerMin", 0);
+        int[] pick = NodeService.timerPick(now > 0 ? now : p.getInt("shareTimerLast", 30));
+        CheckBox timerOn = new CheckBox(this);
+        timerOn.setText("Use a sharing timer");
+        timerOn.setChecked(now > 0);
+        col.addView(timerOn);
+        android.widget.Spinner amount = new android.widget.Spinner(this), unit = new android.widget.Spinner(this);
+        unit.setAdapter(new android.widget.ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, new String[]{"minutes", "hours"}));
+        unit.setSelection(pick[1], false);
+        setAmounts(amount, pick[1] == 1);
+        amount.setSelection(pick[0], false);
+        Runnable save = () -> {
+            int min = NodeService.timerMinutes(amount.getSelectedItemPosition(), unit.getSelectedItemPosition() == 1);
+            boolean on = timerOn.isChecked();
+            amount.setEnabled(on);
+            unit.setEnabled(on);
+            int old = p.getInt("shareTimerMin", 0), want = on ? min : 0;
+            p.edit().putInt("shareTimerLast", min).putInt("shareTimerMin", want).apply();
+            if (old != want) NodeService.timerChanged(SettingsActivity.this);
+        };
+        android.widget.AdapterView.OnItemSelectedListener changed = new android.widget.AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(android.widget.AdapterView<?> a, View v, int pos, long id) {
-                if (p.getInt("shareTimerMin", 0) == NodeService.TIMER_MINUTES[pos]) return;
-                p.edit().putInt("shareTimerMin", NodeService.TIMER_MINUTES[pos]).apply();
-                NodeService.timerChanged(SettingsActivity.this);
+                if (a == unit) {
+                    // keep the same length of time as near as the other unit allows, e.g. 30 minutes → 1 hour
+                    boolean hours = pos == 1;
+                    if (hours == (amount.getTag() == Boolean.TRUE)) return;
+                    double was = NodeService.timerMinutes(amount.getSelectedItemPosition(), !hours);
+                    setAmounts(amount, hours);
+                    amount.setSelection(NodeService.nearest(NodeService.timerChoices(hours), hours ? was / 60 : was), false);
+                }
+                save.run();
             }
             @Override public void onNothingSelected(android.widget.AdapterView<?> a) { }
-        });
+        };
+        amount.setOnItemSelectedListener(changed);
+        unit.setOnItemSelectedListener(changed);
+        timerOn.setOnCheckedChangeListener((b, on) -> save.run());
+        amount.setEnabled(now > 0);
+        unit.setEnabled(now > 0);
         LinearLayout timerRow = new LinearLayout(this);
         timerRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
         timerRow.addView(body("Remind me after  "));
-        timerRow.addView(timer);
+        timerRow.addView(amount);
+        timerRow.addView(unit);
         col.addView(timerRow);
         CheckBox autoStop = new CheckBox(this);
         autoStop.setText("Stop sharing then, instead of reminding me");
@@ -576,6 +604,15 @@ public class SettingsActivity extends Activity {
         t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
         t.setPadding(0, dp(4), 0, dp(4));
         return t;
+    }
+
+    /** Fill the timer's amount list for a unit; the tag remembers which unit it shows. */
+    private void setAmounts(android.widget.Spinner amount, boolean hours) {
+        int[] c = NodeService.timerChoices(hours);
+        String[] labels = new String[c.length];
+        for (int i = 0; i < c.length; i++) labels[i] = String.valueOf(c[i]);
+        amount.setAdapter(new android.widget.ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, labels));
+        amount.setTag(hours);
     }
 
     private TextView small(String s) {
